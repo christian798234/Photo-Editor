@@ -1,0 +1,109 @@
+name: Windows installer
+
+on:
+  push:
+    branches: ["**"]
+    paths-ignore: ["**.md", "docs/**"]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Publish the installer as a GitHub Release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build web interface
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --only-binary=:all: -r backend/requirements-dev.txt
+          python -m pip install pyinstaller==6.22.3 pyinstaller-hooks-contrib==2026.10
+
+      - name: Run tests on Windows
+        working-directory: backend
+        env:
+          PYTHONUTF8: "1"
+        run: python -m pytest -q -rs -p no:cacheprovider
+
+      - name: Build BirdPhotoEditor.exe (PyInstaller)
+        run: |
+          $ver = python packaging/make_version_info.py
+          "APP_VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          python packaging/make_icon.py packaging/build
+          pyinstaller --noconfirm --clean packaging/birdedit.spec
+
+      - name: Build installer (Inno Setup)
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          & $iscc "/DAppVersion=$env:APP_VERSION" packaging\installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+          Get-ChildItem dist\installer | Format-Table Name, Length
+
+      - name: Install silently and smoke-test the installed app
+        run: |
+          $setup = (Get-ChildItem dist\installer\*.exe | Select-Object -First 1).FullName
+          $dir = "C:\Users\Public\BPE test ü"
+          Start-Process $setup -Wait -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', '/COMPONENTS=main,birds', "/DIR=`"$dir`"", '/LOG=install.log'
+          if (-not (Test-Path "$dir\BirdPhotoEditor.exe")) { Get-Content install.log -Tail 40; throw "exe not installed" }
+          if (-not (Test-Path "$dir\models\yolox_s.onnx")) { throw "models not installed" }
+          $env:BIRDEDIT_DATA_DIR = "$env:RUNNER_TEMP\BPE data ü"
+          $app = Start-Process "$dir\BirdPhotoEditor.exe" -ArgumentList '--no-browser', '--port', '8790', '--token', 'ci' -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 90; $i++) {
+            try { $r = Invoke-RestMethod http://127.0.0.1:8790/api/health; if ($r.app -eq 'bird-photo-editor') { $ok = $true; break } } catch { }
+            Start-Sleep -Seconds 1
+          }
+          if (-not $ok) { Get-Content "$env:BIRDEDIT_DATA_DIR\logs\*.log" -ErrorAction SilentlyContinue; throw "app did not start" }
+          python packaging/ci_smoke.py http://127.0.0.1:8790 ci "$env:RUNNER_TEMP\exports ü"
+          $smoke = $LASTEXITCODE
+          Write-Host "---- app log ----"
+          Get-Content "$env:BIRDEDIT_DATA_DIR\logs\*.log" -ErrorAction SilentlyContinue
+          if (Select-String -Path "$env:BIRDEDIT_DATA_DIR\logs\*.log" -Pattern "control window unavailable" -Quiet) {
+            Write-Host "::warning::The desktop control window could not be created on the CI machine"
+          }
+          Stop-Process -Id $app.Id -Force
+          if ($smoke -ne 0) { throw "smoke test failed" }
+          Start-Process "$dir\unins000.exe" -Wait -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES'
+          if (Test-Path "$dir\BirdPhotoEditor.exe") { throw "uninstall left the exe behind" }
+          Write-Host "Install, run, export and uninstall all succeeded."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BirdPhotoEditor-Setup-${{ env.APP_VERSION }}
+          path: dist/installer/*.exe
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.release }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "v$env:APP_VERSION"
+          $notes = "Windows 10/11 (64-bit) installer. Not code-signed: Windows SmartScreen may show 'Windows protected your PC' - choose More info, then Run anyway. Built and smoke-tested by GitHub Actions run $env:GITHUB_RUN_ID."
+          gh release create $tag (Get-ChildItem dist\installer\*.exe).FullName --target $env:GITHUB_SHA --title "Bird Photo Editor $env:APP_VERSION" --notes $notes

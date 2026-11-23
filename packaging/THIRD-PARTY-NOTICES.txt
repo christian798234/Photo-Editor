@@ -1,0 +1,21 @@
+Bird Photo Editor
+=================
+
+Bird Photo Editor runs entirely on your computer. It does not upload photos,
+metadata or usage data. It is provided "as is", without warranty of any kind.
+
+This program includes the following third-party software (licences in the
+installed files or at the listed projects):
+
+- Python (PSF License)
+- LibRaw via rawpy (LibRaw: LGPL-2.1 or CDDL-1.0; rawpy: MIT)
+- NumPy (BSD-3-Clause), OpenCV (Apache-2.0), Pillow (MIT-CMU),
+  tifffile (BSD-3-Clause), ExifRead (BSD-3-Clause), piexif (MIT)
+- FastAPI, Starlette, Uvicorn, Pydantic (MIT / BSD-3-Clause)
+- ONNX Runtime (MIT)
+- React (MIT)
+- Optional bird detection models:
+  - YOLOX-S, Megvii (Apache-2.0)
+  - MobileSAM, Chaoning Zhang et al. (Apache-2.0), converted to ONNX
+- Packaged with PyInstaller (GPL-2.0 with bootloader exception) and
+  Inno Setup.

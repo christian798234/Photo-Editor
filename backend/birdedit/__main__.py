@@ -85,17 +85,30 @@ def setup_logging(paths: AppPaths) -> str:
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     root.addHandler(handler)
-    console = logging.StreamHandler()
-    console.setLevel(logging.WARNING)
-    root.addHandler(console)
+    if sys.stderr is not None:          # None in a windowed (no console) .exe
+        console = logging.StreamHandler()
+        console.setLevel(logging.WARNING)
+        root.addHandler(console)
     return str(log_file)
 
 
+def _fix_std_streams() -> None:
+    """A windowed .exe has no console: give print() somewhere harmless to go."""
+    import os
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name) is None:
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+
+
 def main(argv: list[str] | None = None) -> int:
+    _fix_std_streams()
     ap = argparse.ArgumentParser(prog="birdedit", description="Bird Photo Editor (local)")
     ap.add_argument("--port", type=int, default=None)
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--dev", action="store_true", help="allow the Vite dev server origin")
+    ap.add_argument("--window", dest="window", action="store_true", default=None,
+                    help="show the desktop control window (default for the installed app)")
+    ap.add_argument("--no-window", dest="window", action="store_false")
     ap.add_argument("--token", default=None, help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
 
@@ -138,11 +151,28 @@ def main(argv: list[str] | None = None) -> int:
                     f"{traceback.format_exc(limit=3)}\n\nDetails were written to:\n{log_file}")
         return 4
 
+    use_window = args.window if args.window is not None else bool(getattr(sys, "frozen", False))
+    window = None
+    if use_window:
+        try:
+            from . import dialogs
+            from .app_window import ControlWindow
+
+            def stop() -> None:
+                server.should_exit = True
+
+            window = ControlWindow(url, stop, log_file)
+            dialogs.set_window(window)
+        except Exception:
+            log.warning("control window unavailable; running without it", exc_info=True)
+            window = None
+
     def open_when_ready() -> None:
         for _ in range(120):
             if existing_instance(port):
                 print(f"\nBird Photo Editor is running at {url}")
-                print("Keep this window open while you work. Close it to quit.\n")
+                if window is None:
+                    print("Keep this window open while you work. Close it to quit.\n")
                 if args.dev:
                     print(f"Dev token: {token}")
                 if not args.no_browser:
@@ -152,6 +182,22 @@ def main(argv: list[str] | None = None) -> int:
         message_box("Bird Photo Editor", f"The server did not start in time.\nSee {log_file}")
 
     threading.Thread(target=open_when_ready, daemon=True).start()
+    if window is not None:
+        failed: list = []
+
+        def serve() -> None:
+            try:
+                server.run()
+            except Exception:
+                log.exception("server crashed")
+                failed.append(True)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        window.run()                 # returns when the user quits
+        server.should_exit = True
+        t.join(timeout=10)
+        return 5 if failed else 0
     try:
         server.run()
     except Exception:

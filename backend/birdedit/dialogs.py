@@ -60,11 +60,45 @@ class DialogUnavailable(Exception):
 
 def available() -> bool:
     """Cheap check whether native dialogs can work (tkinter importable)."""
+    if _window is not None:
+        return True
     import importlib.util
     try:
         return importlib.util.find_spec("tkinter") is not None
     except (ImportError, ValueError):
         return False
+
+
+# When the desktop control window is running, dialogs are shown by it on the
+# Tk main thread instead of in a child process.
+_window = None
+
+
+def set_window(window) -> None:
+    global _window
+    _window = window
+
+
+def _in_window(mode: str, arg: str) -> list[str]:
+    from tkinter import filedialog
+
+    def show(root):
+        root.attributes("-topmost", True)
+        try:
+            if mode == "files":
+                res = filedialog.askopenfilenames(parent=root, title="Import photos",
+                                                  filetypes=[("Photos (RAW, JPEG, TIFF)", arg), ("All files", "*.*")])
+                return list(res) if res else []
+            if mode == "file":
+                res = filedialog.askopenfilename(parent=root, title="Locate the original file",
+                                                 filetypes=[("Photos (RAW, JPEG, TIFF)", arg), ("All files", "*.*")])
+                return [res] if res else []
+            res = filedialog.askdirectory(parent=root, title=arg, mustexist=True)
+            return [res] if res else []
+        finally:
+            root.attributes("-topmost", False)
+
+    return [p for p in _window.call(show) if isinstance(p, str) and p]
 
 
 def _patterns() -> str:
@@ -73,6 +107,10 @@ def _patterns() -> str:
 
 
 def _run(args: list[str], timeout: int = 900) -> list[str]:
+    if _window is not None:
+        return _in_window(args[0], args[1] if len(args) > 1 else "")
+    if getattr(sys, "frozen", False):
+        raise DialogUnavailable("dialogs need the app window")
     kwargs: dict = {}
     if sys.platform == "win32":
         kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW

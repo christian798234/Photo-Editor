@@ -71,8 +71,10 @@ def models_dir() -> Path:
     override = os.environ.get("BIRDEDIT_MODELS_DIR")
     if override:
         return Path(override)
-    if getattr(sys, "frozen", False):                       # PyInstaller bundle
-        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "models"
+    if getattr(sys, "frozen", False):
+        # Installed app: the optional "Bird detection" installer component
+        # puts the models next to BirdPhotoEditor.exe.
+        return Path(sys.executable).parent / "models"
     return Path(__file__).resolve().parent.parent / "models"
 
 
