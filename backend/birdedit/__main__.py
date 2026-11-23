@@ -20,6 +20,7 @@ import time
 import traceback
 import urllib.request
 import webbrowser
+from pathlib import Path
 
 from .config import AppPaths, default_data_dir
 
@@ -100,17 +101,31 @@ def _fix_std_streams() -> None:
             setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
 
 
+def _ask_existing_to_show(port: int) -> str | None:
+    """Tell a running copy to bring its window forward; returns its shell."""
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/api/show", data=b"", method="POST")
+        with urllib.request.urlopen(req, timeout=2) as r:
+            return json.loads(r.read().decode()).get("shell")
+    except Exception:
+        return None
+
+
 def main(argv: list[str] | None = None) -> int:
     _fix_std_streams()
+    frozen = bool(getattr(sys, "frozen", False))
     ap = argparse.ArgumentParser(prog="birdedit", description="Bird Photo Editor (local)")
     ap.add_argument("--port", type=int, default=None)
-    ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--ui", choices=("desktop", "browser", "server"), default=None,
+                    help="desktop: own program window (default for the installed app); "
+                         "browser: open in the web browser; server: no window")
+    ap.add_argument("--no-browser", action="store_true", help="browser mode: do not open a tab")
     ap.add_argument("--dev", action="store_true", help="allow the Vite dev server origin")
-    ap.add_argument("--window", dest="window", action="store_true", default=None,
-                    help="show the desktop control window (default for the installed app)")
-    ap.add_argument("--no-window", dest="window", action="store_false")
+    ap.add_argument("--window", dest="window", action="store_true", default=None, help=argparse.SUPPRESS)
+    ap.add_argument("--no-window", dest="window", action="store_false", help=argparse.SUPPRESS)
     ap.add_argument("--token", default=None, help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
+    ui = args.ui or ("server" if args.window is False else "desktop" if frozen else "browser")
 
     paths = AppPaths(default_data_dir())
     try:
@@ -128,10 +143,22 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     url = f"http://127.0.0.1:{port}/"
     if running:
+        shell = _ask_existing_to_show(port)
         print(f"Bird Photo Editor is already running at {url}")
-        if not args.no_browser:
+        if shell != "desktop" and ui != "server" and not args.no_browser:
             webbrowser.open(url)
         return 0
+
+    if ui == "desktop":
+        from . import desktop
+        ok, why = desktop.available()
+        if not ok:
+            log.warning("program window unavailable: %s", why)
+            if frozen:
+                message_box("Bird Photo Editor",
+                            f"The program window could not be opened because {why}\n\n"
+                            "Bird Photo Editor will open in your web browser instead.")
+            ui = "browser"
 
     try:
         import uvicorn
@@ -142,6 +169,7 @@ def main(argv: list[str] | None = None) -> int:
         token = args.token or new_token()
         dev_origins = ("http://localhost:5173", "http://127.0.0.1:5173") if args.dev else ()
         app = create_app(token=token, port=port, dev_origins=dev_origins)
+        app.state.shell = "desktop" if ui == "desktop" else "browser"
         config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning",
                                 access_log=False, log_config=None)
         server = uvicorn.Server(config)
@@ -151,16 +179,58 @@ def main(argv: list[str] | None = None) -> int:
                     f"{traceback.format_exc(limit=3)}\n\nDetails were written to:\n{log_file}")
         return 4
 
-    use_window = args.window if args.window is not None else bool(getattr(sys, "frozen", False))
+    def stop() -> None:
+        server.should_exit = True
+
+    failed: list = []
+
+    def serve() -> None:
+        try:
+            server.run()
+        except Exception:
+            log.exception("server crashed")
+            failed.append(True)
+
+    def wait_ready() -> bool:
+        for _ in range(240):
+            if existing_instance(port):
+                return True
+            if failed:
+                return False
+            time.sleep(0.25)
+        return False
+
+    # ------------------------------------------------ program window (default)
+    if ui == "desktop":
+        from . import desktop, dialogs
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        if not wait_ready():
+            message_box("Bird Photo Editor could not start", f"See the log file:\n{log_file}")
+            return 5
+        icon = None
+        if frozen:
+            cand = Path(sys.executable).parent / "_internal" / "icon.ico"
+            icon = str(cand) if cand.exists() else None
+        win = desktop.DesktopWindow(url, stop, paths.root / "webview", app.state.import_paths, icon)
+        dialogs.set_desktop(win)
+        app.state.show_window = win.bring_to_front
+        try:
+            win.run()                      # returns when the window is closed
+        except Exception:
+            log.exception("program window failed")
+            message_box("Bird Photo Editor", "The program window stopped unexpectedly.\n"
+                        f"Details were written to:\n{log_file}")
+        stop()
+        t.join(timeout=10)
+        return 5 if failed else 0
+
+    # ------------------------------------------------------- browser mode
     window = None
-    if use_window:
+    if ui == "browser" and frozen:
         try:
             from . import dialogs
             from .app_window import ControlWindow
-
-            def stop() -> None:
-                server.should_exit = True
-
             window = ControlWindow(url, stop, log_file)
             dialogs.set_window(window)
         except Exception:
@@ -168,40 +238,27 @@ def main(argv: list[str] | None = None) -> int:
             window = None
 
     def open_when_ready() -> None:
-        for _ in range(120):
-            if existing_instance(port):
-                print(f"\nBird Photo Editor is running at {url}")
-                if window is None:
-                    print("Keep this window open while you work. Close it to quit.\n")
-                if args.dev:
-                    print(f"Dev token: {token}")
-                if not args.no_browser:
-                    webbrowser.open(url)
-                return
-            time.sleep(0.25)
-        message_box("Bird Photo Editor", f"The server did not start in time.\nSee {log_file}")
+        if wait_ready():
+            print(f"\nBird Photo Editor is running at {url}")
+            if window is None:
+                print("Keep this window open while you work. Close it to quit.\n")
+            if args.dev:
+                print(f"Dev token: {token}")
+            if ui == "browser" and not args.no_browser:
+                webbrowser.open(url)
+        else:
+            message_box("Bird Photo Editor", f"The server did not start in time.\nSee {log_file}")
 
     threading.Thread(target=open_when_ready, daemon=True).start()
     if window is not None:
-        failed: list = []
-
-        def serve() -> None:
-            try:
-                server.run()
-            except Exception:
-                log.exception("server crashed")
-                failed.append(True)
-
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        window.run()                 # returns when the user quits
-        server.should_exit = True
+        window.run()
+        stop()
         t.join(timeout=10)
         return 5 if failed else 0
-    try:
-        server.run()
-    except Exception:
-        log.exception("server crashed")
+    serve()
+    if failed:
         message_box("Bird Photo Editor stopped unexpectedly", f"See the log file:\n{log_file}")
         return 5
     return 0

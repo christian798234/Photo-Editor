@@ -240,3 +240,31 @@ def test_edit_history_persists(client, tmp_path):
     back = client.get(f"/api/photos/{pid}/history").json()
     assert back["index"] == 1 and back["entries"][1]["label"] == "Exposure +0.50 EV"
     assert client.put(f"/api/photos/{pid}/history", json={"entries": [], "index": 0}).status_code == 422
+
+
+def test_import_paths_links_files_and_folders(client, tmp_path):
+    folder = tmp_path / "Card ü 2026"
+    folder.mkdir()
+    make_jpeg(folder / "a.jpg", gradient_image(), "SONY", "ILCE-1")
+    make_jpeg(folder / "b.JPG", gradient_image(), "NIKON CORPORATION", "NIKON Z 9")
+    (folder / "notes.txt").write_text("not a photo")
+    single = make_jpeg(tmp_path / "c.jpg", gradient_image())
+    res = client.app.state.import_paths([str(folder), str(single), str(tmp_path / "missing.jpg")])
+    assert len(res["photo_ids"]) == 3
+    wait_jobs(client)
+    ph = by_name(client)
+    assert set(ph) == {"a.jpg", "b.JPG", "c.jpg"}
+    assert all(p["source"]["kind"] == "linked" for p in ph.values())       # linked, not copied
+    assert ph["a.jpg"]["source"]["path"] == str(folder / "a.jpg")
+
+
+def test_show_endpoint_needs_no_token_but_checks_origin(data_dir):
+    from fastapi.testclient import TestClient
+
+    from birdedit.server import create_app
+    app = create_app(token="secret", port=8765, data_dir=data_dir)
+    c = TestClient(app, base_url="http://127.0.0.1:8765")
+    assert c.post("/api/show").json() == {"shell": "browser"}
+    assert c.post("/api/show", headers={"Origin": "https://evil.example"}).status_code == 403
+    assert c.get("/api/system", headers={"X-BirdEdit-Token": "secret"}).json()["shell"] == "browser"
+    app.state.jobs.shutdown()

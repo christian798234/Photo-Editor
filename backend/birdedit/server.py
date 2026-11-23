@@ -6,6 +6,7 @@ import logging
 import os
 import platform
 import sys
+import threading
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -141,6 +142,7 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
                   openapi_url=None, lifespan=lifespan)
     app.add_middleware(LocalGuard, port=port, token=token, extra_origins=dev_origins)
     app.state.store, app.state.proc, app.state.jobs = store, proc, jobs
+    app.state.shell = "browser"          # "desktop" when shown in the program window
     pending_relocations: dict[str, tuple[str, str]] = {}
     export_folders: set[str] = set()
 
@@ -176,6 +178,14 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
     def health():
         return {"app": "bird-photo-editor", "version": __version__}
 
+    @app.post("/api/show")
+    def show():
+        """A second launch asks the running copy to bring its window forward."""
+        fn = getattr(app.state, "show_window", None)
+        if fn is not None:
+            threading.Thread(target=fn, daemon=True).start()
+        return {"shell": app.state.shell}
+
     @app.get("/api/system")
     def system():
         import rawpy
@@ -187,6 +197,7 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
             "cpu_count": os.cpu_count(), "data_dir": str(paths.root),
             "subject_masks": "installed" if masks.status()["installed"] else "not installed",
             "native_dialogs": dialogs.available(),
+            "shell": app.state.shell,
         }
 
     # ------------------------------------------------------------- photos
@@ -220,6 +231,23 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
         return FileResponse(p, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
     # ------------------------------------------------------------- import
+    def import_paths(chosen: list[str]) -> dict:
+        """Link files (or every supported photo in a dropped folder) in place."""
+        files: list[Path] = []
+        for p in chosen:
+            path = Path(p)
+            if os.path.isdir(io_path(path)):
+                files += sorted(f for f in path.iterdir()
+                                if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS)
+            elif os.path.isfile(io_path(path)) and path.suffix.lower() in SUPPORTED_EXTENSIONS:
+                files.append(path)
+        ids = [store.create(f, "linked", f.name)["id"] for f in files]
+        if not ids:
+            return {"job": None, "photo_ids": []}
+        return {"job": _start_import(ids), "photo_ids": ids}
+
+    app.state.import_paths = import_paths
+
     @app.post("/api/import/dialog")
     def import_dialog():
         try:
@@ -227,15 +255,7 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
         except dialogs.DialogUnavailable as e:
             raise HTTPException(501, f"The Windows file dialog is not available here ({e}). "
                                      "Drag photos onto the window or use 'Upload copies' instead.")
-        ids = []
-        for p in chosen:
-            path = Path(p)
-            if not os.path.isfile(io_path(path)):
-                continue
-            ids.append(store.create(path, "linked", path.name)["id"])
-        if not ids:
-            return {"job": None, "photo_ids": []}
-        return {"job": _start_import(ids), "photo_ids": ids}
+        return import_paths(chosen)
 
     @app.post("/api/import/upload")
     async def import_upload(files: list[UploadFile] = File(...)):

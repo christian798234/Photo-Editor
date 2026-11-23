@@ -32,6 +32,8 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [nativeDialogs, setNativeDialogs] = useState(true);
+  const [shell, setShell] = useState<"browser" | "desktop">("browser");
+  const shellRef = useRef<"browser" | "desktop">("browser");
   const [subject, setSubject] = useState<SubjectStatus | null>(null);
   const [showMask, setShowMask] = useState(false);
   const [tool, setTool] = useState<SelectTool>("off");
@@ -83,7 +85,14 @@ export function App() {
   }, [fail]);
 
   useEffect(() => { refresh(); }, [refresh]);
-  useEffect(() => { api.system().then((s) => setNativeDialogs(!!s.native_dialogs)).catch(() => {}); }, []);
+  useEffect(() => {
+    api.system().then((s) => {
+      setNativeDialogs(!!s.native_dialogs);
+      const sh = s.shell === "desktop" ? "desktop" : "browser";
+      setShell(sh);
+      shellRef.current = sh;
+    }).catch(() => {});
+  }, []);
   const loadSubject = useCallback(() => api.subjectStatus().then(setSubject).catch(() => {}), []);
   useEffect(() => { loadSubject(); }, [loadSubject]);
   const loadLimits = useCallback(() => api.limits().then(setLimits).catch(() => {}), []);
@@ -327,22 +336,38 @@ export function App() {
   }, [nativeDialogs, toast, fail, refresh, startPolling]);
 
   useEffect(() => {
+    let linked = false;      // program window: the app links dropped files in place
+    const imported = (e: Event) => {
+      linked = true;
+      const n = (e as CustomEvent).detail ?? 0;
+      toast(n ? `Importing ${n} photo${n === 1 ? "" : "s"} (originals linked in place, not copied).`
+              : "No supported photos were found in what you dropped.", n ? "info" : "error");
+      startPolling();
+      refresh();
+    };
     const over = (e: DragEvent) => { if (e.dataTransfer?.types.includes("Files")) { e.preventDefault(); setDragOver(true); } };
     const leave = (e: DragEvent) => { if (e.relatedTarget === null) setDragOver(false); };
     const drop = (e: DragEvent) => {
       e.preventDefault();
       setDragOver(false);
-      uploadFiles(Array.from(e.dataTransfer?.files ?? []));
+      const files = Array.from(e.dataTransfer?.files ?? []);
+      if (shellRef.current !== "desktop") { uploadFiles(files); return; }
+      // In the program window the app receives the real paths; if it does
+      // not (e.g. files dragged from a web page), copy them in instead.
+      linked = false;
+      window.setTimeout(() => { if (!linked) uploadFiles(files); }, 1500);
     };
+    window.addEventListener("birdedit-imported", imported);
     window.addEventListener("dragover", over);
     window.addEventListener("dragleave", leave);
     window.addEventListener("drop", drop);
     return () => {
+      window.removeEventListener("birdedit-imported", imported);
       window.removeEventListener("dragover", over);
       window.removeEventListener("dragleave", leave);
       window.removeEventListener("drop", drop);
     };
-  }, [uploadFiles]);
+  }, [uploadFiles, toast, startPolling, refresh]);
 
   /* ------------------------------------------------------ selection */
   const onSelect = useCallback((id: string, mode: "single" | "toggle" | "range") => {
@@ -436,7 +461,9 @@ export function App() {
         </ol>
         <div className="actions">
           <button onClick={importDialog} title="Choose RAW, JPEG or TIFF files">Import Photos</button>
-          <button className="ghost" onClick={() => fileInput.current?.click()} title="Copy files in through the browser">Upload copies…</button>
+          {shell === "browser" && (
+            <button className="ghost" onClick={() => fileInput.current?.click()} title="Copy files in through the browser">Upload copies…</button>
+          )}
           <input ref={fileInput} type="file" multiple hidden
             accept=".nef,.nrw,.arw,.srf,.sr2,.cr2,.cr3,.raf,.orf,.rw2,.dng,.pef,.srw,.jpg,.jpeg,.tif,.tiff"
             onChange={(e) => { uploadFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
@@ -540,7 +567,9 @@ export function App() {
       <div className="toasts" aria-live="assertive">
         {toasts.map((t) => <div key={t.id} className={`toast ${t.kind}`}>{t.text}</div>)}
       </div>
-      {dragOver && <div className="drop-hint">Drop photos to import (copies are made; originals are not changed)</div>}
+      {dragOver && <div className="drop-hint">{shell === "desktop"
+        ? "Drop photos or a folder to import (originals are linked, never changed)"
+        : "Drop photos to import (copies are made; originals are not changed)"}</div>}
     </div>
   );
 }

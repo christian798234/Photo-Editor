@@ -18,7 +18,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-OPEN_PATHS = {"/api/health"}
+OPEN_PATHS = {"/api/health", "/api/show"}   # harmless: no data, no side effects beyond raising the window
 
 
 class LocalGuard(BaseHTTPMiddleware):

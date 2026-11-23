@@ -7,10 +7,15 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 root = Path(SPECPATH).parent
-datas = [(str(root / "backend" / "birdedit" / "web"), "birdedit/web")]
+datas = [(str(root / "backend" / "birdedit" / "web"), "birdedit/web"),
+         (str(root / "packaging" / "build" / "icon.ico"), ".")]
 binaries = []
 hiddenimports = collect_submodules("uvicorn") + collect_submodules("birdedit")
-for pkg in ("rawpy", "onnxruntime"):
+import sys
+pkgs = ["rawpy", "onnxruntime"]
+if sys.platform == "win32":
+    pkgs += ["webview", "pythonnet", "clr_loader"]      # program window (WebView2)
+for pkg in pkgs:
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b

@@ -101,7 +101,7 @@ if (-not (Test-Path $VenvPy)) {
 }
 
 Write-Step "Installing packages (prebuilt wheels only; this can take a few minutes)"
-& $VenvPy -m pip install --disable-pip-version-check --only-binary=:all: -r "$Req"
+& $VenvPy -m pip install --disable-pip-version-check --only-binary=:all: --no-binary=proxy_tools -r "$Req"
 if ($LASTEXITCODE -ne 0) {
     Fail ("Package installation failed. Check your internet connection and try again. " +
           "If it mentions a missing wheel, your Python version may be unsupported (use 3.12).")

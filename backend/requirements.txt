@@ -31,3 +31,11 @@ onnxruntime==1.32.0
 flatbuffers==25.12.19
 protobuf==7.36.2
 packaging==26.3
+# Program window on Windows (Microsoft Edge WebView2 via pywebview; BSD/MIT)
+pywebview==6.2.1 ; sys_platform == "win32"
+pythonnet==3.2.1 ; sys_platform == "win32"
+clr_loader==0.3.1 ; sys_platform == "win32"
+cffi==2.1.1 ; sys_platform == "win32"
+pycparser==3.12 ; sys_platform == "win32"
+bottle==0.13.4 ; sys_platform == "win32"
+proxy_tools==0.1.0 ; sys_platform == "win32"   # pure Python, source-only (no compiler needed)

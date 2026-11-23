@@ -34,9 +34,16 @@ also delete your saved edits and previews. Your original photos and exports are 
 
 ## 2. Start
 
-Open **Bird Photo Editor** from the Start menu or desktop. A small window says *"Bird Photo Editor is running"*
-and your web browser opens the editor. Use **Open in browser** if you close the tab; click **Quit** (or close the
-small window) to stop the app.
+Open **Bird Photo Editor** from the Start menu or desktop. It opens in **its own program window**, like any
+other Windows application, with its own taskbar icon and no browser. Close the window to quit. Opening it
+again while it is running brings the existing window to the front.
+
+The window uses Microsoft Edge WebView2, which is part of Windows 11 and installed on almost all Windows 10
+PCs. If it is missing, the app says so and opens in your web browser instead (install the free *WebView2
+Runtime* from Microsoft to get the program window).
+
+In the program window, **dragging photos or a whole folder** onto it links the originals where they are (no
+copies are made).
 
 <details>
 <summary>Alternative: run from the source code (developers, or if you prefer not to use the installer)</summary>
@@ -59,7 +66,7 @@ The steps across the top of the window show where you are: **1. Import → 2. Au
 
 | Step | What to do |
 |---|---|
-| **Import Photos** | Click **Import Photos** to pick files with the normal Windows dialog. The app *links* to your originals (no copies). You can also **drag files onto the window**; the browser can't reveal where dragged files live, so those are *copied* into the app's data folder. |
+| **Import Photos** | Click **Import Photos** to pick files with the normal Windows dialog, or drag photos or a folder onto the window. The app *links* to your originals (no copies). (Only when running in a web browser are dragged files *copied*, because a browser can't reveal where they live.) |
 | **Auto Edit** | Edits the current photo. **Auto Edit All** edits every imported photo, each one analysed individually. |
 | **Review** | Use **After / Before / Before/After slider / Side by side**. **Fit** shows the whole photo; **100%** (or double-click the photo) shows real pixels: drag or use the arrow keys to pan. Judge sharpness and noise at 100%. |
 | **Export…** | Choose photos, a folder (**Choose…** opens the Windows folder picker), JPEG or 16-bit TIFF, optional resizing and whether to keep GPS. You'll see a result for each file. |

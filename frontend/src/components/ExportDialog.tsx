@@ -108,7 +108,7 @@ export function ExportDialog({ photos, selected, currentId, jobs, onClose, onSta
           </ul>
           <div className="row end">
             {(job.status === "running" || job.status === "queued") && <button onClick={() => api.cancelJob(job.id)}>Cancel export</button>}
-            {job.status === "done" && navigator.platform.startsWith("Win") && (
+            {job.status === "done" && /Win/.test(navigator.userAgent) && (
               <button onClick={() => api.openFolder(s.export_folder).catch((e) => setError(e.message))}>Open folder</button>
             )}
             <button className="primary" onClick={() => ref.current?.close()}>Close</button>

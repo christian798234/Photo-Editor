@@ -16,7 +16,9 @@ FastAPI backend (Python)  ──  job pools: "import" (1 worker), "heavy" (1 wor
    ├─ store.py      project records, recipes, preview caches (atomic writes)
    ├─ export.py     JPEG / 16-bit TIFF, ICC, EXIF/XMP, GPS policy, unique names
    ├─ masks.py      optional bird detection (YOLOX) + segmentation (MobileSAM), ONNX Runtime
-   ├─ app_window.py desktop control window of the installed app (hosts native dialogs)
+   ├─ desktop.py    program window of the installed app (pywebview + Edge WebView2),
+   │                native file dialogs, drag-and-drop with real paths
+   ├─ app_window.py small control window used only in browser mode
    ├─ dialogs.py    native Windows file/folder pickers (tkinter)
    └─ security.py   localhost guard middleware
 ```
@@ -24,7 +26,8 @@ FastAPI backend (Python)  ──  job pools: "import" (1 worker), "heavy" (1 wor
 The installed app is `BirdPhotoEditor.exe` (PyInstaller one-folder build, `packaging/birdedit.spec`)
 wrapped by an Inno Setup installer (`packaging/installer.iss`), both produced and smoke-tested by
 `.github/workflows/windows-build.yml` on a Windows runner. The .exe shows a small control window and runs
-the same server as `python -m birdedit`.
+the same server as `python -m birdedit`, then shows the interface in its own program window (WebView2)
+loading `http://127.0.0.1:<port>/`. `--ui browser` restores the browser mode.
 
 `python -m birdedit` picks a free port (8765–8784), detects an already-running copy, starts
 uvicorn bound to 127.0.0.1, opens the browser, and reports startup failures with a message box

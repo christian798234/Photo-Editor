@@ -60,7 +60,7 @@ class DialogUnavailable(Exception):
 
 def available() -> bool:
     """Cheap check whether native dialogs can work (tkinter importable)."""
-    if _window is not None:
+    if _window is not None or _desktop is not None:
         return True
     import importlib.util
     try:
@@ -106,7 +106,17 @@ def _patterns() -> str:
     return " ".join(f"*{e} *{e.upper()}" for e in exts)
 
 
+_desktop = None
+
+
+def set_desktop(desktop) -> None:
+    global _desktop
+    _desktop = desktop
+
+
 def _run(args: list[str], timeout: int = 900) -> list[str]:
+    if _desktop is not None:
+        return _desktop.choose(args[0], args[1] if len(args) > 1 else "")
     if _window is not None:
         return _in_window(args[0], args[1] if len(args) > 1 else "")
     if getattr(sys, "frozen", False):

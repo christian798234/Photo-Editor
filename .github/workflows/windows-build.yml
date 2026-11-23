@@ -41,7 +41,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install --only-binary=:all: -r backend/requirements-dev.txt
+          python -m pip install --only-binary=:all: --no-binary=proxy_tools -r backend/requirements-dev.txt
           python -m pip install pyinstaller==6.22.3 pyinstaller-hooks-contrib==2026.10
 
       - name: Run tests on Windows
@@ -73,13 +73,30 @@ jobs:
           if (-not (Test-Path "$dir\BirdPhotoEditor.exe")) { Get-Content install.log -Tail 40; throw "exe not installed" }
           if (-not (Test-Path "$dir\models\yolox_s.onnx")) { throw "models not installed" }
           $env:BIRDEDIT_DATA_DIR = "$env:RUNNER_TEMP\BPE data ü"
-          $app = Start-Process "$dir\BirdPhotoEditor.exe" -ArgumentList '--no-browser', '--port', '8790', '--token', 'ci' -PassThru
+          # Default mode of the installed app: its own program window (WebView2).
+          $app = Start-Process "$dir\BirdPhotoEditor.exe" -ArgumentList '--port', '8790', '--token', 'ci' -PassThru
           $ok = $false
           for ($i = 0; $i -lt 90; $i++) {
             try { $r = Invoke-RestMethod http://127.0.0.1:8790/api/health; if ($r.app -eq 'bird-photo-editor') { $ok = $true; break } } catch { }
             Start-Sleep -Seconds 1
           }
           if (-not $ok) { Get-Content "$env:BIRDEDIT_DATA_DIR\logs\*.log" -ErrorAction SilentlyContinue; throw "app did not start" }
+          $loaded = $false
+          for ($i = 0; $i -lt 45; $i++) {
+            if (Select-String -Path "$env:BIRDEDIT_DATA_DIR\logs\*.log" -Pattern "desktop window loaded the editor" -Quiet) { $loaded = $true; break }
+            Start-Sleep -Seconds 1
+          }
+          Start-Sleep -Seconds 3
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          New-Item -ItemType Directory -Force screenshots | Out-Null
+          $bmp.Save("screenshots\program-window.png")
+          if ($loaded) { Write-Host "PROGRAM WINDOW: WebView2 window opened and loaded the editor." }
+          else { Write-Host "::warning::The program window did not report loading (no interactive desktop on the CI machine?)." }
+          $show = Invoke-RestMethod -Method Post http://127.0.0.1:8790/api/show
+          Write-Host "Second-launch check: running shell = $($show.shell)"
           python packaging/ci_smoke.py http://127.0.0.1:8790 ci "$env:RUNNER_TEMP\exports ü"
           $smoke = $LASTEXITCODE
           Write-Host "---- app log ----"
@@ -92,6 +109,13 @@ jobs:
           Start-Process "$dir\unins000.exe" -Wait -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES'
           if (Test-Path "$dir\BirdPhotoEditor.exe") { throw "uninstall left the exe behind" }
           Write-Host "Install, run, export and uninstall all succeeded."
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: screenshots/
+          retention-days: 14
 
       - uses: actions/upload-artifact@v4
         with:
