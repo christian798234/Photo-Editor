@@ -56,7 +56,7 @@ def test_mixed_camera_batch_is_identified_per_file(client, tmp_path):
     # Recognised camera, but the stub is not real RAW data -> separate decode status.
     for n in ("DSC_0001.NEF", "DSC00002.ARW"):
         assert ph[n]["metadata"]["camera"]["identified"] is True
-        assert ph[n]["decode_status"] in ("unsupported", "failed")
+        assert ph[n]["decode_status"] in ("unsupported", "failed", "needs_converter")
         assert ph[n]["decode_error"]
     for n in ("sony.jpg", "nikon.jpg", "nometa.jpg", "scan.tif"):
         assert ph[n]["decode_status"] == "supported", ph[n]["decode_error"]

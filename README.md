@@ -183,6 +183,20 @@ special readers for Canon CR3 and Fujifilm RAF). It never guesses from the file 
 Panasonic RW2, DNG and others **when the installed LibRaw 0.22.2 supports that camera and compression
 variant**. Also JPEG and TIFF (8/16-bit, with embedded color profiles honoured).
 
+### Nikon "High Efficiency" NEF files (Z8, Z9, Z6III, Zf …)
+
+Newer Nikon cameras can record RAW with **High Efficiency** or **High Efficiency★** compression. It uses a
+licensed codec (TicoRAW) that no free RAW decoder can read, including the one in this app. The app recognises
+these files and tells you so. To edit them:
+
+1. Install the free **Adobe DNG Converter** from Adobe (the app's **Get Adobe DNG Converter** button opens
+   the download page).
+2. Click **Try again** on the photo. From then on, Bird Photo Editor converts such files automatically in the
+   background. Your NEF is not changed; the converted DNG is kept in the app's own data folder.
+
+Alternatively, set the camera's *NEF (RAW) compression* to **Lossless compressed** for future photos. (Support
+for lossless Z6III files has not been verified yet with a real file.)
+
 ## Your files and data
 
 * **Originals are only ever read.** Exports never overwrite anything; if a name exists, ` (2)`, ` (3)` … is added.
@@ -263,7 +277,7 @@ file's new location. If the file isn't identical to the one imported, you'll be 
 |---|---|
 | Automated tests (76 tests) | Pass on Linux. The GitHub Actions workflow also runs them on Windows; see the latest *Windows installer* run for its result. |
 | **Windows installer** | Built by GitHub Actions on `windows-latest`. That run installs it silently (into a folder with spaces and Unicode), starts the installed app, imports a test photo, auto-edits it with bird detection on, exports JPEG and 16-bit TIFF, checks the files, then uninstalls. The interactive parts (SmartScreen prompt, clicking through the wizard, the desktop window, native file dialogs) have not been tried by a person on Windows. |
-| Real **Nikon** RAW | Verified end-to-end with one public NEF (Nikon D3S, ISO 3200, NASA image). |
+| Real **Nikon** RAW | Verified end-to-end with one public NEF (Nikon D3S, ISO 3200, NASA image). A real **Nikon Z6III High Efficiency★** NEF is correctly identified (camera, lens, ISO) and detected as High Efficiency; editing it requires Adobe DNG Converter, and that conversion path is tested only with a stand-in converter (Adobe's tool cannot run in the test environment). |
 | Real **Sony** RAW | **Not verified**: no Sony ARW sample was available. **Please supply ARW files.** |
 | Bird detection | Verified on **one** real bird photo (an eagle, from the darknet project's sample images): detected, outline passed the quality checks, click refinement worked. Correctly found no bird in two non-bird photos. Composite test images (two birds; one small bird) behaved as expected: both birds selected; the small one was found but its outline was rejected as uncertain. Your own bird photos are still needed for a real assessment. |
 | Bird-photo editing quality | **Not verified** on the cases you listed (dark bird on bright sky, white bird, high ISO, small bird, multiple birds, no bird) with real files. |

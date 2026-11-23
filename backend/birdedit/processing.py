@@ -7,12 +7,13 @@ import io
 import logging
 import threading
 from collections import OrderedDict
+from pathlib import Path
 
 import cv2
 import numpy as np
 from PIL import Image
 
-from . import auto, decode, formats, masks, metadata, noise, pipeline
+from . import auto, converter, decode, formats, masks, metadata, noise, pipeline
 from .config import MAX_INPUT_BYTES, PREVIEW_MAX_EDGE, THUMB_MAX_EDGE
 from .jobs import Job
 from .recipe import Recipe, baseline_recipe, effective
@@ -35,6 +36,19 @@ def to_jpeg_bytes(disp: np.ndarray, quality: int = 88) -> bytes:
     buf = io.BytesIO()
     im.save(buf, "JPEG", quality=quality)
     return buf.getvalue()
+
+
+def needs_converter_message(camera: str, high_efficiency: bool) -> str:
+    cam = f" from your {camera}" if camera and camera != "Unknown camera" else ""
+    if high_efficiency:
+        return (f"This NEF{cam} uses Nikon's High Efficiency RAW compression. No free RAW decoder can "
+                "read it, including the one built into this app. Install the free Adobe DNG Converter, "
+                "then click Try again: Bird Photo Editor will convert these files automatically (your NEF "
+                "is not changed). For future photos you can also set the camera's NEF compression to "
+                "'Lossless compressed'.")
+    return (f"The RAW decoder in this app cannot read this file{cam}. If you install the free Adobe "
+            "DNG Converter and click Try again, Bird Photo Editor will convert it automatically "
+            "(your original is not changed).")
 
 
 class FullResCache:
@@ -215,20 +229,44 @@ class Processor:
         if job.cancelled:
             raise InterruptedError
 
+        converted = None
         try:
             dec = decode.decode(data, sniff, half=True, orientation=md.orientation,
                                 camera_name=md.camera.display_name, md=md)
         except decode.DecodeError as e:
-            st.update(photo_id, status="error", decode_status=e.code,
-                      decode_error=e.user_message, decode_detail=e.detail[:300],
-                      metadata=md.to_dict())
-            return {"item": photo_id, "ok": False, "message": f"{name}: {e.user_message}"}
+            if sniff.kind != formats.Kind.RAW:
+                st.update(photo_id, status="error", decode_status=e.code,
+                          decode_error=e.user_message, decode_detail=e.detail[:300], metadata=md.to_dict())
+                return {"item": photo_id, "ok": False, "message": f"{name}: {e.user_message}"}
+            # A RAW variant LibRaw cannot read: convert with Adobe DNG Converter if installed.
+            he = converter.is_nikon_high_efficiency(data)
+            exe = converter.find_dng_converter()
+            if exe is None:
+                msg = needs_converter_message(md.camera.display_name, he)
+                st.update(photo_id, status="error", decode_status="needs_converter", decode_error=msg,
+                          decode_detail=e.detail[:300], metadata=md.to_dict(), high_efficiency=he)
+                return {"item": photo_id, "ok": False, "message": f"{name}: needs Adobe DNG Converter"}
+            st.update(photo_id, status_message="Converting with Adobe DNG Converter...")
+            try:
+                converted = converter.convert_to_dng(Path(rec["source"]["path"]), st.cache_dir(photo_id), exe)
+                dng = converted.read_bytes()
+                dec = decode.decode(dng, formats.classify(dng[:64], ".dng"), half=True,
+                                    camera_name=md.camera.display_name)
+                del dng
+            except (converter.ConversionError, decode.DecodeError, OSError) as e2:
+                msg = getattr(e2, "user_message", None) or str(e2)
+                st.update(photo_id, status="error", decode_status="failed", metadata=md.to_dict(),
+                          decode_error=f"Adobe DNG Converter could not convert this file: {msg}",
+                          high_efficiency=he)
+                return {"item": photo_id, "ok": False, "message": f"{name}: conversion failed"}
         del data
         job.item_progress = 0.7
         nm = noise.estimate(dec.image, dec.noise_native_scale, md.iso)
         prev = _resize_max(dec.image, PREVIEW_MAX_EDGE)
         scale = prev.shape[1] / dec.full_size[0]
         info = dict(dec.info)
+        if converted is not None:
+            info["converted_with"] = "Adobe DNG Converter (original file unchanged)"
         full_size = [int(dec.full_size[0]), int(dec.full_size[1])]
         del dec
         st.save_preview(photo_id, prev, scale)
@@ -236,7 +274,8 @@ class Processor:
         (st.cache_dir(photo_id) / "thumb.jpg").write_bytes(to_jpeg_bytes(disp, 82))
         st.update(photo_id, status="ready", status_message="Ready", decode_status="supported",
                   decode_error="", metadata=md.to_dict(), decoder_info=info,
-                  full_size=full_size, noise_model=nm.to_dict(), preview_kind="rendered")
+                  full_size=full_size, noise_model=nm.to_dict(), preview_kind="rendered",
+                  converted_dng=converted is not None)
         return {"item": photo_id, "ok": True, "message": f"{name}: ready"}
 
     # ------------------------------------------------------------- auto
@@ -321,6 +360,15 @@ class Processor:
         if not self.store.source_available(rec):
             raise FileNotFoundError("The original file is missing; locate it to view at 100% or export.")
         self.full.clear()
+        if rec.get("converted_dng"):
+            dng_path = self.store.cache_dir(photo_id) / "converted.dng"
+            if not dng_path.is_file():          # cache was cleared: convert again
+                converter.convert_to_dng(Path(rec["source"]["path"]), self.store.cache_dir(photo_id))
+            data = dng_path.read_bytes()
+            dec = decode.decode(data, formats.classify(data[:64], ".dng"), half=False)
+            del data
+            self.full.put(photo_id, dec)
+            return dec
         data = self.store.read_source(rec, MAX_INPUT_BYTES)
         sniff = formats.classify(data[:64], "." + rec["original_name"].rsplit(".", 1)[-1].lower())
         orient = int((rec.get("metadata") or {}).get("orientation") or 1)

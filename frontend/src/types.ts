@@ -73,7 +73,9 @@ export interface Photo {
   source_available: boolean;
   status: "queued" | "processing" | "ready" | "error";
   status_message: string;
-  decode_status: "pending" | "supported" | "unsupported" | "failed";
+  decode_status: "pending" | "supported" | "unsupported" | "failed" | "needs_converter";
+  high_efficiency?: boolean;
+  converted_dng?: boolean;
   decode_error: string;
   decode_detail?: string;
   format_note?: string;

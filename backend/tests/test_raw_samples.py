@@ -34,6 +34,12 @@ def samples(ext: str, make: str) -> list[Path]:
 
 def _full_workflow(path: Path):
     data = path.read_bytes()
+    from birdedit import converter
+    if converter.is_nikon_high_efficiency(data) and converter.find_dng_converter() is None:
+        with pytest.raises(decode.DecodeError):
+            decode.decode(data, formats.classify(data[:64], path.suffix), half=True)
+        pytest.skip(f"UNVERIFIED: {path.name} is a Nikon High Efficiency NEF; decoding it needs "
+                    "Adobe DNG Converter, which is not installed here")
     sn = formats.classify(data[:64], path.suffix)
     assert sn.kind == formats.Kind.RAW
     md = metadata.read_metadata(data, sn.container, decode.embedded_preview_jpeg_bytes(data))

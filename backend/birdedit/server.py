@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
-from . import PIPELINE_VERSION, __version__, dialogs, masks, restraint
+from . import PIPELINE_VERSION, __version__, converter, dialogs, masks, restraint
 from .config import MAX_INPUT_BYTES, AppPaths, default_data_dir
 from .export import ExportOptions, validate_folder
 from .formats import SUPPORTED_EXTENSIONS
@@ -204,6 +204,7 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
             "cpu_count": os.cpu_count(), "data_dir": str(paths.root),
             "subject_masks": "installed" if masks.status()["installed"] else "not installed",
             "native_dialogs": dialogs.available(),
+            "dng_converter": str(converter.find_dng_converter() or ""),
             "shell": app.state.shell,
         }
 
@@ -588,6 +589,18 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
         job = jobs.submit("export", f"Exporting {len(ids)} photo(s)", ids,
                           lambda job, pid: export_one(proc, job, pid, opts), pool="heavy")
         return job.to_dict()
+
+    HELP_LINKS = {"dng_converter": converter.DOWNLOAD_PAGE}
+
+    @app.post("/api/open-help")
+    def open_help(body: dict):
+        """Open a fixed, known help page in the default web browser."""
+        url = HELP_LINKS.get(str(body.get("topic", "")))
+        if url is None:
+            raise HTTPException(404, "Unknown help topic")
+        import webbrowser
+        webbrowser.open(url)
+        return {"ok": True, "url": url}
 
     @app.post("/api/open-folder")
     def open_folder(body: dict):

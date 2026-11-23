@@ -83,3 +83,23 @@ def wait_jobs(client, timeout=60):
             return jobs
         time.sleep(0.1)
     raise TimeoutError("jobs did not finish")
+
+
+def make_synthetic_dng(path: Path, make="NIKON CORPORATION", model="NIKON Z6_3", h=400, w=600) -> Path:
+    """A small but valid mosaic DNG that LibRaw decodes (test fixture only)."""
+    import tifffile
+    rng = np.random.default_rng(0)
+    yy, xx = np.mgrid[0:h, 0:w]
+    scene = 0.05 + 0.5 * (xx / w) * (yy / h)
+    cfa = np.zeros((h, w))
+    for (dy, dx), g in {(0, 0): 0.5, (0, 1): 1.0, (1, 0): 1.0, (1, 1): 0.7}.items():
+        cfa[dy::2, dx::2] = scene[dy::2, dx::2] * g
+    raw = (512 + cfa * (16383 - 512) + rng.normal(0, 8, (h, w))).clip(0, 16383).astype(np.uint16)
+    cm = [1.0, -0.2, -0.1, -0.3, 1.2, 0.1, -0.05, 0.2, 0.8]
+    srat = [x for v in cm for x in (int(round(v * 10000)), 10000)]
+    tifffile.imwrite(path, raw, photometric=32803, metadata=None, extratags=[
+        (271, "s", 0, make, True), (272, "s", 0, model, True), (50706, "B", 4, (1, 4, 0, 0), True),
+        (50708, "s", 0, model, True), (33421, "H", 2, (2, 2), True), (33422, "B", 4, (0, 1, 1, 2), True),
+        (50714, "H", 1, (512,), True), (50717, "H", 1, (16383,), True), (50721, "2i", 9, srat, True),
+        (50778, "H", 1, (21,), True), (50728, "2I", 3, (5000, 10000, 10000, 10000, 7000, 10000), True)])
+    return path

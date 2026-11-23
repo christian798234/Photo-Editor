@@ -12,6 +12,7 @@ interface Props {
 function statusLabel(p: Photo): { text: string; cls: string } {
   if (!p.source_available) return { text: "Missing", cls: "st-error" };
   if (p.decode_status === "unsupported") return { text: "Unsupported", cls: "st-error" };
+  if (p.decode_status === "needs_converter") return { text: "Needs converter", cls: "st-busy" };
   if (p.decode_status === "failed" || p.status === "error") return { text: "Error", cls: "st-error" };
   if (p.status !== "ready") return { text: p.preview_kind === "embedded" ? "Rendering…" : "Processing…", cls: "st-busy" };
   if (p.recipe.auto_applied) return { text: "Edited", cls: "st-done" };

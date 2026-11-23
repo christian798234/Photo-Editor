@@ -1,3 +1,4 @@
+import { api } from "../api";
 import type { Photo } from "../types";
 
 function Row({ k, v }: { k: string; v?: string | number | null }) {
@@ -13,6 +14,7 @@ export function InfoPanel({ photo, onLocate, onRetry }: { photo: Photo; onLocate
     supported: "Decoded successfully",
     unsupported: "Not supported by the installed decoder",
     failed: "Could not be decoded",
+    needs_converter: "Needs Adobe DNG Converter",
   };
   const isRaw = photo.kind === "raw";
   return (
@@ -39,6 +41,16 @@ export function InfoPanel({ photo, onLocate, onRetry }: { photo: Photo; onLocate
       </dl>
       {photo.format_note && <p className="small warn">{photo.format_note}</p>}
       {photo.decode_error && <p className="error-text" role="alert">{photo.decode_error}</p>}
+      {photo.decode_status === "needs_converter" && (
+        <div className="row">
+          <button onClick={() => api.openHelp("dng_converter").catch(() => {})}>Get Adobe DNG Converter (free)</button>
+          <button className="primary" onClick={onRetry}>Try again</button>
+        </div>
+      )}
+      {photo.converted_dng && (
+        <p className="small muted">Decoded via Adobe DNG Converter{photo.high_efficiency ? " (Nikon High Efficiency NEF)" : ""}.
+          Your original file is unchanged.</p>
+      )}
       {photo.decode_detail && <details className="small muted"><summary>Technical detail</summary>{photo.decode_detail}</details>}
       {photo.preview_kind === "embedded" && photo.decode_status === "pending" && (
         <p className="small warn">Showing the camera's embedded JPEG until the RAW rendering is ready. Edits always use the RAW data.</p>
@@ -50,7 +62,7 @@ export function InfoPanel({ photo, onLocate, onRetry }: { photo: Photo; onLocate
           <button onClick={onLocate}>Locate original…</button>
         </div>
       )}
-      {photo.source_available && (photo.decode_status === "failed") && (
+      {photo.source_available && (photo.decode_status === "failed" || photo.decode_status === "unsupported") && (
         <button onClick={onRetry}>Try again</button>
       )}
       {photo.source_available && (

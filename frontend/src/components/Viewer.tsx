@@ -174,7 +174,7 @@ export function Viewer({ photo, recipe, compare, zoom, setZoom, cropDraft, setCr
     );
   }
 
-  if (photo.decode_status === "unsupported" || photo.decode_status === "failed") {
+  if (photo.decode_status === "unsupported" || photo.decode_status === "failed" || photo.decode_status === "needs_converter") {
     return (
       <div className="viewer" ref={boxRef}>
         <div className="empty-state error-state" role="alert">
