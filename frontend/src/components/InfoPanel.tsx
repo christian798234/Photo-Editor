@@ -57,11 +57,13 @@ export function InfoPanel({ photo, onLocate, onRetry, dngConverter, onUseConvert
           <button className="primary" onClick={onRetry}>Try again</button>
         </div>
       )}
-      {dngConverter && photo.kind === "raw" && !photo.converted_dng && photo.decode_status === "supported" && (
-        <button className="ghost small-btn" onClick={onUseConverter}
-          title="Re-open this photo through Adobe DNG Converter (use if colours or edges look wrong)">
-          Use Adobe DNG Converter for this photo
-        </button>
+      {photo.kind === "raw" && !photo.converted_dng && photo.decode_status === "supported" && !photo.profile_warning && (
+        <div className="converter-hint">
+          <p className="small">Colors or edges look wrong (e.g. a very new camera)?</p>
+          {dngConverter
+            ? <button onClick={onUseConverter}>Use Adobe DNG Converter for this photo</button>
+            : <button onClick={() => api.openHelp("dng_converter").catch(() => {})}>Get Adobe DNG Converter (free)</button>}
+        </div>
       )}
       {photo.converted_dng && (
         <p className="small muted">Decoded via Adobe DNG Converter{photo.high_efficiency ? " (Nikon High Efficiency NEF)" : ""}.
@@ -80,6 +82,10 @@ export function InfoPanel({ photo, onLocate, onRetry, dngConverter, onUseConvert
       )}
       {photo.source_available && (photo.decode_status === "failed" || photo.decode_status === "unsupported") && (
         <button onClick={onRetry}>Try again</button>
+      )}
+      {photo.source_available && photo.decode_status === "supported" && (
+        <button className="ghost small-btn" onClick={onRetry}
+          title="Open this photo again from the original file (your edits are kept)">Reload photo</button>
       )}
       {photo.source_available && (
         <details className="small muted"><summary>Original location</summary>
