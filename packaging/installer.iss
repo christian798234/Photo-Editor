@@ -62,6 +62,43 @@ Name: "{autodesktop}\Bird Photo Editor"; Filename: "{app}\BirdPhotoEditor.exe"; 
 Filename: "{app}\BirdPhotoEditor.exe"; Description: "Start Bird Photo Editor now"; Flags: nowait postinstall skipifsilent
 
 [Code]
+{ ---------------------------------------------------------------------------
+  Running the installer when Bird Photo Editor is already installed offers a
+  choice: update/reinstall, or uninstall.
+  --------------------------------------------------------------------------- }
+function GetUninstallString(): String;
+var
+  Key, Value: String;
+begin
+  Key := ExpandConstant('Software\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1');
+  Value := '';
+  if not RegQueryStringValue(HKCU, Key, 'UninstallString', Value) then
+    RegQueryStringValue(HKLM, Key, 'UninstallString', Value);
+  Result := Value;
+end;
+
+function InitializeSetup(): Boolean;
+var
+  Uninstaller: String;
+  Choice, Code: Integer;
+begin
+  Result := True;
+  Uninstaller := GetUninstallString();
+  if (Uninstaller = '') or WizardSilent then
+    Exit;
+  Choice := TaskDialogMsgBox('Bird Photo Editor is already installed',
+    'What would you like to do?' + #13#10 + #13#10 +
+    'Update / reinstall keeps your photos, edits and settings.' + #13#10 +
+    'Uninstall removes the program (you will be asked whether to also delete saved edits).' + #13#10 +
+    'Your original photos and exported files are never touched.',
+    mbConfirmation, MB_YESNOCANCEL, ['Update / reinstall', 'Uninstall'], 0);
+  if Choice = IDYES then
+    Exit;
+  Result := False;
+  if Choice = IDNO then
+    Exec(RemoveQuotes(Uninstaller), '', '', SW_SHOW, ewWaitUntilTerminated, Code);
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataDir: String;

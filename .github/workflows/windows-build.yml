@@ -106,9 +106,25 @@ jobs:
           }
           Stop-Process -Id $app.Id -Force
           if ($smoke -ne 0) { throw "smoke test failed" }
+          # Uninstall entry in Settings > Apps, and the Start menu uninstall shortcut
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{6F1B9C52-4D7E-4C0B-9E2A-7A3B5D1C8E44}_is1'
+          $entry = Get-ItemProperty $key -ErrorAction SilentlyContinue
+          if (-not $entry) { throw "no entry in Settings > Apps" }
+          Write-Host "Settings > Apps entry: $($entry.DisplayName) $($entry.DisplayVersion)"
+          $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Bird Photo Editor\Uninstall Bird Photo Editor.lnk"
+          if (-not (Test-Path $lnk)) { throw "Start menu uninstall shortcut missing" }
+          Write-Host "Start menu uninstall shortcut: present"
+          # Running the installer again over an existing install (update path)
+          Start-Process $setup -Wait -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/DIR=`"$dir`""
+          if (-not (Test-Path "$dir\BirdPhotoEditor.exe")) { throw "reinstall failed" }
+          Write-Host "Reinstall over existing install: ok"
+          # Uninstall
           Start-Process "$dir\unins000.exe" -Wait -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES'
+          Start-Sleep -Seconds 3
           if (Test-Path "$dir\BirdPhotoEditor.exe") { throw "uninstall left the exe behind" }
-          Write-Host "Install, run, export and uninstall all succeeded."
+          if (Get-ItemProperty $key -ErrorAction SilentlyContinue) { throw "uninstall left the Settings > Apps entry" }
+          if (Test-Path $lnk) { throw "uninstall left the Start menu shortcut" }
+          Write-Host "Install, run, export, reinstall and uninstall all succeeded."
 
       - uses: actions/upload-artifact@v4
         if: always()

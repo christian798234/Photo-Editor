@@ -29,8 +29,13 @@ recommended for 45-megapixel cameras. No Python or other software is needed.
    *Create a desktop shortcut*.
 
 Updating: run a newer installer; your photos, edits and history are kept.
-Uninstalling: *Settings → Apps → Installed apps → Bird Photo Editor → Uninstall*. You'll be asked whether to
-also delete your saved edits and previews. Your original photos and exports are never touched.
+**Uninstalling**: any of these works:
+* Run the installer (`BirdPhotoEditor-Setup-….exe`) again and choose **Uninstall**;
+* Start menu → *Bird Photo Editor* folder → **Uninstall Bird Photo Editor**;
+* Windows *Settings → Apps → Installed apps → Bird Photo Editor → Uninstall*.
+
+You'll be asked whether to also delete your saved edits and previews. Your original photos and exported files
+are never touched. Running the installer again also offers **Update / reinstall**, which keeps your edits.
 
 ## 2. Start
 
