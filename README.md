@@ -82,6 +82,28 @@ It is generated from the actual settings.
   Paste applies the look, strength and sliders to the current photo, or to every selected photo
   (Ctrl-click or Shift-click thumbnails). Camera-specific color data is never copied between photos.
 
+### Less is more: no over-editing
+
+The app is deliberately restrained. It aims for a photo that looks well exposed, not edited:
+
+* **Auto Edit is gentle.** Small shadow lift, little extra color and contrast, moderate noise reduction,
+  restrained sharpening. Bright scenes such as white birds or snow are only darkened slightly unless
+  highlights are actually clipping.
+* **Keep edits natural** (Advanced panel, **on by default**) caps every adjustment, manual or automatic, at a
+  natural range (e.g. color intensity +25, contrast ±20, local contrast 15, strength 100%). The cap is enforced
+  for exports too. Turning it off asks you to confirm first.
+* **Natural texture:** noise reduction always keeps part of the fine grain, avoiding the smooth "plastic"
+  look typical of over-processed or AI-generated images.
+* An **edit-level badge** next to the summary says *Light*, *Moderate* or *Strong edit*. *Strong* lists what is
+  pushing it there; lowering **Overall edit strength** is the simplest fix.
+* The app never generates or replaces pixels (no generative fill, synthetic feathers, eyes or backgrounds).
+  Bird detection only decides *how much* noise reduction and sharpening each area gets. Camera metadata is
+  kept on export, and nothing is hidden or faked in the metadata.
+
+No app can guarantee how a third-party "AI detection" or "over-editing" tool will judge a photo, and these
+were not tested against any such tool. But a light, global, texture-preserving edit of a real capture is
+the kind of result such tools and competition rules are designed to accept.
+
 ### Undoing edits
 
 * **Undo / Redo** buttons (or Ctrl+Z / Ctrl+Y) step backwards and forwards.

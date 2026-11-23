@@ -63,8 +63,9 @@ class FullResCache:
 
 
 class Processor:
-    def __init__(self, store: Store, subject_enabled=lambda: False) -> None:
+    def __init__(self, store: Store, subject_enabled=lambda: False, limit=lambda r: r) -> None:
         self.store = store
+        self.limit = limit                          # natural limits (if switched on)
         self.full = FullResCache()
         self.subject_enabled = subject_enabled      # user consent + models installed
         self._masks: OrderedDict[str, tuple[float, dict | None, np.ndarray | None]] = OrderedDict()
@@ -256,7 +257,7 @@ class Processor:
                     log.exception("bird detection failed; using global editing")
         mask = self.usable_mask(photo_id) if self.subject_enabled() else None
         recipe, facts = auto.analyze_and_build(prev, nm, look, noise_render_scale=1.0, mask=mask)
-        recipe = recipe.model_copy(update={"crop": old.crop})
+        recipe = self.limit(recipe.model_copy(update={"crop": old.crop}))
         self.store.put_facts(photo_id, facts)
         self.store.put_recipe(photo_id, recipe)
         return recipe, summarize(recipe, facts)
@@ -374,7 +375,7 @@ def export_one(proc: Processor, job: Job, photo_id: str, opts) -> dict:
             note = " (note: the original file changed since import)"
     except OSError:
         pass
-    recipe = st.get_recipe(photo_id)
+    recipe = proc.limit(st.get_recipe(photo_id))
     md = CaptureMetadata.from_dict(rec.get("metadata") or {})
     nm = noise.NoiseModel.from_dict(rec["noise_model"])
     while not proc.full.slot.acquire(timeout=0.5):

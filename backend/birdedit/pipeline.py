@@ -170,7 +170,9 @@ def denoise(disp: np.ndarray, sigma_map: np.ndarray, strength) -> np.ndarray:
     t_c = (np.where(s > 0, 2.0 + 2.5 * s, 0.0) * sigma_map).astype(np.float32)
     luma_gain = np.array([1.0, 0.9, 0.7, 0.5, 0.3], np.float32)
     chroma_gain = np.array([1.0, 1.0, 1.0, 0.9, 0.8, 0.6], np.float32)
-    y = _shrink_pyramid(y, t_l, 1.0, 5, keep=0.18, level_gain=luma_gain)
+    # Keep a quarter of the removed fine luminance detail: natural grain
+    # instead of a smooth, 'plastic' (processed-looking) surface.
+    y = _shrink_pyramid(y, t_l, 1.0, 5, keep=0.25, level_gain=luma_gain)
     # Chroma noise (in Cb/Cr difference units) is comparable to luma noise.
     cb = _shrink_pyramid(cb, t_c, 1.0, 6, keep=0.0, level_gain=chroma_gain)
     cr = _shrink_pyramid(cr, t_c, 1.0, 6, keep=0.0, level_gain=chroma_gain)

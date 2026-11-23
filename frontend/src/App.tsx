@@ -9,7 +9,7 @@ import { Filmstrip } from "./components/Filmstrip";
 import { InfoPanel } from "./components/InfoPanel";
 import { JobsBar } from "./components/JobsBar";
 import { Viewer, type Compare, type Zoom } from "./components/Viewer";
-import type { Crop, History, Job, Photo, Recipe, SubjectStatus } from "./types";
+import type { Crop, EditLevel, History, Job, Limits, Photo, Recipe, SubjectStatus } from "./types";
 import { BASELINE } from "./types";
 
 type Clip = Pick<Recipe, "look" | "strength" | "sliders">;
@@ -37,6 +37,8 @@ export function App() {
   const [tool, setTool] = useState<SelectTool>("off");
   const [maskVersion, setMaskVersion] = useState("0");
   const [historyView, setHistoryView] = useState<History | null>(null);
+  const [limits, setLimits] = useState<Limits | null>(null);
+  const [editLevel, setEditLevel] = useState<EditLevel | null>(null);
 
   const histories = useRef(new Map<string, History>());
   const commitTimer = useRef<number | null>(null);
@@ -84,6 +86,16 @@ export function App() {
   useEffect(() => { api.system().then((s) => setNativeDialogs(!!s.native_dialogs)).catch(() => {}); }, []);
   const loadSubject = useCallback(() => api.subjectStatus().then(setSubject).catch(() => {}), []);
   useEffect(() => { loadSubject(); }, [loadSubject]);
+  const loadLimits = useCallback(() => api.limits().then(setLimits).catch(() => {}), []);
+  useEffect(() => { loadLimits(); }, [loadLimits]);
+  const toggleLimits = useCallback(async (on: boolean) => {
+    if (!on && !window.confirm("Allow stronger edits?\n\nWith natural limits off, adjustments can go far enough to look over-processed.")) return;
+    try {
+      const st = await api.settings();
+      await api.saveSettings({ ...st, natural_limits: on });
+      await loadLimits();
+    } catch (e) { fail(e); }
+  }, [loadLimits, fail]);
 
   // Job polling while anything is running.
   const startPolling = useCallback(() => { polling.current = true; }, []);
@@ -130,6 +142,7 @@ export function App() {
       }).catch(fail);
     }
     setSummary(photo.summary);
+    setEditLevel(photo.edit_level ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photo?.id]);
 
@@ -137,13 +150,22 @@ export function App() {
   const save = useCallback(async (id: string, r: Recipe) => {
     try {
       const res = await api.saveRecipe(id, r);
-      if (currentRef.current === id) setSummary(res.summary);
-      setPhotos((ps) => ps.map((p) => (p.id === id ? { ...p, recipe: r, summary: res.summary } : p)));
+      let saved = r;
+      if (!same(res.recipe, r)) {
+        // The server kept the edit within the natural limits.
+        saved = res.recipe;
+        const h = histories.current.get(id);
+        if (h) { h.entries[h.index] = { ...h.entries[h.index], recipe: saved }; persistHistory(id, { ...h }); }
+        if (currentRef.current === id) setRecipe(saved);
+      }
+      if (currentRef.current === id) { setSummary(res.summary); setEditLevel(res.edit_level); }
+      setPhotos((ps) => ps.map((p) => (p.id === id ? { ...p, recipe: saved, summary: res.summary, edit_level: res.edit_level } : p)));
     } catch (e) {
       fail(e);
     } finally {
       pendingCommit.current = false;
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fail]);
 
   const persistHistory = useCallback((id: string, h: History) => {
@@ -208,6 +230,7 @@ export function App() {
       const res = await api.auto(photo.id, look);
       const names = { natural: "Natural", crisp: "Crisp Detail", soft_background: "Soft Background" };
       setNow({ ...res.recipe }, `Auto Edit (${names[look]})`);
+      setEditLevel(res.edit_level);
       setMaskVersion(String(Date.now()));
       refresh();
       setSummary(res.summary);
@@ -459,7 +482,17 @@ export function App() {
             cropDraft={cropDraft} setCropDraft={setCropDraft}
             showMask={showMask && !!photo?.mask?.has_mask} selecting={tool !== "off"} maskVersion={maskVersion}
             maskShape={photo?.mask?.shape ?? null} onSelectClick={selectClick} />
-          {summary && ready && <p className="summary" aria-live="polite">{summary}</p>}
+          {summary && ready && (
+            <div className="summary" aria-live="polite">
+              {editLevel && editLevel.level !== "none" && (
+                <span className={`level level-${editLevel.level}`} title={editLevel.notes.join(" ")}>
+                  {editLevel.level === "light" ? "Light edit" : editLevel.level === "moderate" ? "Moderate edit" : "Strong edit"}
+                </span>
+              )}
+              <span>{summary}</span>
+              {editLevel?.level === "strong" && <div className="small warn">{editLevel.notes.join(" ")}</div>}
+            </div>
+          )}
           <Filmstrip photos={photos} currentId={currentId} selected={selected} onSelect={onSelect} onRemove={removePhoto} />
         </section>
 
@@ -468,7 +501,7 @@ export function App() {
             <>
               <InfoPanel photo={photo} onLocate={locate} onRetry={() => api.reprocess(photo.id).then(() => { startPolling(); refresh(); }).catch(fail)} />
               <Adjustments photo={photo} recipe={recipe} onChange={onChange} onLook={(l) => autoEdit(l)} busy={busy}
-                autoRecipe={lastAuto} maskUsable={!!photo.mask?.usable}
+                autoRecipe={lastAuto} maskUsable={!!photo.mask?.usable} limits={limits} onToggleLimits={toggleLimits}
                 onSuggestCrop={async (aspect, portrait) => {
                   try {
                     const r = await api.cropSuggestion(photo.id, aspect, portrait);

@@ -48,7 +48,7 @@ def _eff(**kw) -> Effective:
     return Effective(**base)
 
 
-BACKGROUND_NR = {"natural": 25.0, "crisp": 15.0, "soft_background": 60.0}
+BACKGROUND_NR = {"natural": 20.0, "crisp": 12.0, "soft_background": 45.0}
 
 
 def analyze_and_build(lin_preview: np.ndarray, noise: NoiseModel, look: str = "natural",
@@ -117,6 +117,9 @@ def analyze_and_build(lin_preview: np.ndarray, noise: NoiseModel, look: str = "n
         ev = min(ev, float(np.log2(2.4 / p995)))
     if clipped > 0.005:
         ev = min(ev, 0.3)
+    # Bright scenes (white birds, snow, sky) are supposed to look bright:
+    # darken only a little unless highlights are actually clipping.
+    ev = max(ev, -1.0 if clipped > 0.005 else -0.5)
     ev = round(ev * 20) / 20
     if abs(ev) < 0.1:
         ev = 0.0
@@ -138,24 +141,24 @@ def analyze_and_build(lin_preview: np.ndarray, noise: NoiseModel, look: str = "n
                      _eff(exposure=ev, highlights=highlights))
     # --- shadows: lift moderately when much of the frame is dark -----------
     dark_frac = float(np.sum(wts * (d < 0.18)) / np.sum(wts))
-    shadows = float(np.clip((dark_frac - 0.15) * 80.0, 0.0, 30.0))
+    shadows = float(np.clip((dark_frac - 0.15) * 60.0, 0.0, 20.0))
     shadows = round(shadows)
     facts["dark_fraction"] = dark_frac
 
     # --- black point: remove haze only, never crush ------------------------
     p01 = float(np.percentile(d, 0.1))
-    black = float(min(p01 * 0.5 * 100.0, 3.0)) if p01 > 0.04 else 0.0
+    black = float(min(p01 * 0.4 * 100.0, 2.0)) if p01 > 0.04 else 0.0
     black = round(black, 1)
 
     d2 = tone_display(d, _eff(shadows=shadows, black=black))
     spread = _wpercentile(d2, wts, 95) - _wpercentile(d2, wts, 5)
-    contrast = float(np.clip(8 + (0.55 - spread) * 30, 4, 18)) + (6 if crisp else 0)
+    contrast = min(14.0, float(np.clip(6 + (0.55 - spread) * 25, 3, 12)) + (4 if crisp else 0))
     facts["tonal_spread"] = spread
 
     sat = np.clip((mx - mn) / np.maximum(mx, 1e-6), 0, 1)
     mid = (d2 > 0.15) & (d2 < 0.9)
     msat = float(sat[mid].mean()) if mid.any() else 0.2
-    color_v = float(np.clip(12 + (0.2 - msat) * 40, 5, 20)) + (5 if crisp else 0)
+    color_v = float(np.clip(8 + (0.2 - msat) * 30, 3, 12)) + (3 if crisp else 0)
     facts["mean_saturation"] = msat
 
     # --- noise reduction and detail from the measured noise ----------------
@@ -168,13 +171,13 @@ def analyze_and_build(lin_preview: np.ndarray, noise: NoiseModel, look: str = "n
     sigma_disp = float(noise.sigma(y_med)) * slope * noise.scale_factor(noise_render_scale)
     facts["noise_sigma_display"] = sigma_disp
     facts["noise_method"] = noise.method
-    nr = float(np.clip(20 + sigma_disp * 4000, 20, 80))
-    detail = float(np.clip(45 - sigma_disp * 2500, 20, 45))
+    nr = float(np.clip(15 + sigma_disp * 3500, 15, 55))
+    detail = float(np.clip(35 - sigma_disp * 2500, 15, 35))
     clarity = 0.0
     if crisp:
-        nr *= 0.8
-        detail = min(60.0, detail + 15)
-        clarity = 12.0
+        nr *= 0.85
+        detail = min(40.0, detail + 10)
+        clarity = 8.0
 
     recipe = Recipe(
         look=look,

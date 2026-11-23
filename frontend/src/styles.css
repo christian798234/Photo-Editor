@@ -181,3 +181,7 @@ input[type="number"] { width: 90px; }
 .history-item.current { border-color: var(--accent); background: #2b3446; }
 .history-item.undone { color: #8d9097; text-decoration: line-through; }
 .h-time { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.level { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 10px; margin-right: 8px; }
+.level-light { background: #24452f; color: #9be3b0; }
+.level-moderate { background: #45401f; color: #f2dc8d; }
+.level-strong { background: #4f2a24; color: #ffb4a8; }

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { cropPixels, fitAspect, fullCrop } from "../crop";
-import type { Aspect, Crop, Internal, Photo, Recipe, Sliders } from "../types";
+import type { Aspect, Crop, Internal, Limits, Photo, Recipe, Sliders } from "../types";
 
 interface SliderDef<K> { key: K; label: string; min: number; max: number; step: number; unit?: string; hint?: string }
 
@@ -60,12 +60,19 @@ interface Props {
   autoRecipe: Recipe | null;
   maskUsable: boolean;
   onSuggestCrop: (aspect: Aspect, portrait: boolean) => void;
+  limits: Limits | null;
+  onToggleLimits: (on: boolean) => void;
   cropDraft: Crop | null;
   setCropDraft: (c: Crop | null) => void;
 }
 
 export function Adjustments({ photo, recipe, onChange, onLook, busy, autoRecipe, maskUsable, onSuggestCrop,
-  cropDraft, setCropDraft }: Props) {
+  limits, onToggleLimits, cropDraft, setCropDraft }: Props) {
+  // With "Keep edits natural" on, sliders only cover the natural range.
+  const lim = <K extends string>(d: SliderDef<K>): SliderDef<K> => {
+    const l = limits?.enabled ? limits.limits[d.key] : undefined;
+    return l ? { ...d, min: Math.max(d.min, l[0]), max: Math.min(d.max, l[1]) } : d;
+  };
   const [showAdvanced, setShowAdvanced] = useState(false);
   const ready = photo.decode_status === "supported";
   const setSlider = (k: keyof Sliders, v: number) => onChange({ ...recipe, sliders: { ...recipe.sliders, [k]: v } });
@@ -98,12 +105,12 @@ export function Adjustments({ photo, recipe, onChange, onLook, busy, autoRecipe,
           more strongly (it never blurs or replaces the background) and needs a reliable bird selection.</p>
       </fieldset>
 
-      <Slider def={{ key: "strength", label: "Overall edit strength", min: 0, max: 150, step: 1, unit: "%",
-        hint: "0% = the unedited baseline" }} value={recipe.strength} disabled={!ready} resetTo={100}
+      <Slider def={lim({ key: "strength", label: "Overall edit strength", min: 0, max: 150, step: 1, unit: "%",
+        hint: "0% = the unedited baseline" })} value={recipe.strength} disabled={!ready} resetTo={100}
         onChange={(v) => onChange({ ...recipe, strength: v })} />
 
       {SIMPLE.map((d) => (
-        <Slider key={d.key} def={d} value={recipe.sliders[d.key]} disabled={!ready} onChange={(v) => setSlider(d.key, v)}
+        <Slider key={d.key} def={lim(d)} value={recipe.sliders[d.key]} disabled={!ready} onChange={(v) => setSlider(d.key, v)}
           resetTo={autoRecipe ? autoRecipe.sliders[d.key] : undefined} />
       ))}
 
@@ -149,9 +156,15 @@ export function Adjustments({ photo, recipe, onChange, onLook, busy, autoRecipe,
       </button>
       {showAdvanced && (
         <div className="advanced">
+          <label className="check">
+            <input type="checkbox" checked={!!limits?.enabled} onChange={(e) => onToggleLimits(e.target.checked)} />
+            Keep edits natural (recommended)
+          </label>
+          <p className="small muted">Caps every adjustment, including exports, so photos never look over-processed.
+            Turning it off allows stronger edits.</p>
           <p className="small muted">These are set automatically by Auto Edit for each photo.</p>
           {ADVANCED.map((d) => (
-            <Slider key={d.key} def={d} value={recipe.internal[d.key]} disabled={!ready} onChange={(v) => setInternal(d.key, v)}
+            <Slider key={d.key} def={lim(d)} value={recipe.internal[d.key]} disabled={!ready} onChange={(v) => setInternal(d.key, v)}
               resetTo={autoRecipe ? autoRecipe.internal[d.key] : undefined} />
           ))}
         </div>

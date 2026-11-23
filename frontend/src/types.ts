@@ -87,7 +87,11 @@ export interface Photo {
   recipe: Recipe;
   summary: string;
   mask: MaskInfo | null;
+  edit_level?: EditLevel;
 }
+
+export interface EditLevel { level: "none" | "light" | "moderate" | "strong"; notes: string[] }
+export interface Limits { enabled: boolean; limits: Record<string, [number, number]> }
 
 export interface MaskInfo {
   status: "good" | "uncertain" | "none";
@@ -140,6 +144,7 @@ export interface Settings {
   long_edge: number | null;
   keep_gps: boolean;
   subject_detection: boolean | null;
+  natural_limits: boolean;
 }
 
 export const BASELINE: Recipe = {

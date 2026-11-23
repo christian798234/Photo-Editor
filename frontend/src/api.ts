@@ -1,4 +1,4 @@
-import type { Crop, History, Job, MaskInfo, Photo, Recipe, Settings, SubjectStatus } from "./types";
+import type { Crop, EditLevel, History, Job, Limits, MaskInfo, Photo, Recipe, Settings, SubjectStatus } from "./types";
 
 function readToken(): string {
   const meta = document.querySelector('meta[name="birdedit-token"]')?.getAttribute("content") ?? "";
@@ -66,9 +66,10 @@ export const api = {
   relocateConfirm: (id: string, pending_id: string) =>
     json(`/api/photos/${id}/relocate/confirm`, { method: "POST", body: JSON.stringify({ pending_id }) }),
   saveRecipe: (id: string, recipe: Recipe) =>
-    json<{ summary: string }>(`/api/photos/${id}/recipe`, { method: "PUT", body: JSON.stringify(recipe) }),
+    json<{ summary: string; recipe: Recipe; edit_level: EditLevel }>(`/api/photos/${id}/recipe`, { method: "PUT", body: JSON.stringify(recipe) }),
+  limits: () => json<Limits>("/api/limits"),
   auto: (id: string, look: "natural" | "crisp" | "soft_background") =>
-    json<{ recipe: Recipe; summary: string }>(`/api/photos/${id}/auto`, { method: "POST", body: JSON.stringify({ look }) }),
+    json<{ recipe: Recipe; summary: string; edit_level: EditLevel }>(`/api/photos/${id}/auto`, { method: "POST", body: JSON.stringify({ look }) }),
   autoAll: (ids: string[], look: "natural" | "crisp") =>
     json<Job>("/api/auto-all", { method: "POST", body: JSON.stringify({ photo_ids: ids, look }) }),
   subjectStatus: () => json<SubjectStatus>("/api/subject/status"),

@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
-from . import PIPELINE_VERSION, __version__, dialogs, masks
+from . import PIPELINE_VERSION, __version__, dialogs, masks, restraint
 from .config import MAX_INPUT_BYTES, AppPaths, default_data_dir
 from .export import ExportOptions, validate_folder
 from .formats import SUPPORTED_EXTENSIONS
@@ -110,6 +110,7 @@ class SettingsModel(BaseModel):
     long_edge: Optional[int] = Field(None, ge=256, le=20000)
     keep_gps: bool = False
     subject_detection: Optional[bool] = None    # None = not asked yet
+    natural_limits: bool = True                 # "Keep edits natural" (less is more)
 
 
 def create_app(token: str, port: int, data_dir: Path | None = None,
@@ -126,7 +127,10 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
     def subject_enabled() -> bool:
         return bool(load_settings().subject_detection) and masks.status()["installed"]
 
-    proc = Processor(store, subject_enabled)
+    def limited(recipe: Recipe) -> Recipe:
+        return restraint.apply_limits(recipe) if load_settings().natural_limits else recipe
+
+    proc = Processor(store, subject_enabled, limited)
     jobs = JobManager()
     @asynccontextmanager
     async def lifespan(_app):
@@ -146,6 +150,7 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
         out["source_available"] = store.source_available(rec)
         out["recipe"] = recipe.model_dump()
         out["summary"] = proc.summary(rec["id"], recipe) if recipe.auto_applied or recipe != Recipe() else ""
+        out["edit_level"] = restraint.edit_level(recipe)
         out.pop("noise_model", None)
         info, m = proc.mask(rec["id"])
         out["mask"] = None if info is None else {
@@ -315,8 +320,10 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
     def put_recipe(photo_id: str, recipe: Recipe):
         _get(photo_id)
         _check_mask(photo_id, recipe)
+        recipe = limited(recipe)
         store.put_recipe(photo_id, recipe)
-        return {"ok": True, "summary": proc.summary(photo_id, recipe)}
+        return {"ok": True, "summary": proc.summary(photo_id, recipe), "recipe": recipe.model_dump(),
+                "edit_level": restraint.edit_level(recipe)}
 
     @app.post("/api/photos/{photo_id}/auto")
     def auto(photo_id: str, body: AutoReq):
@@ -325,7 +332,7 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
             recipe, summary = proc.auto_edit(photo_id, body.look)
         except ValueError as e:
             raise HTTPException(409, str(e)) from None
-        return {"recipe": recipe.model_dump(), "summary": summary}
+        return {"recipe": recipe.model_dump(), "summary": summary, "edit_level": restraint.edit_level(recipe)}
 
     @app.post("/api/auto-all")
     def auto_all(body: AutoAllReq):
@@ -340,6 +347,11 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
             return {"item": pid, "ok": True, "message": f"{rec['original_name']}: auto edited"}
 
         return jobs.submit("auto", f"Auto editing {len(ids)} photo(s)", ids, work, pool="import").to_dict()
+
+    @app.get("/api/limits")
+    def limits():
+        return {"enabled": load_settings().natural_limits,
+                "limits": {k: list(v) for k, v in restraint.NATURAL_LIMITS.items()}}
 
     # ------------------------------------------------------------- history
     @app.get("/api/photos/{photo_id}/history")
@@ -438,7 +450,7 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
             cur = store.get_recipe(pid)
             new = cur.model_copy(update={"look": body.look, "strength": body.strength,
                                          "sliders": sliders})
-            new = Recipe.model_validate(new.model_dump())
+            new = limited(Recipe.model_validate(new.model_dump()))
             if new.look == "soft_background" and proc.usable_mask(pid) is None:
                 new = new.model_copy(update={"look": "natural"})
             store.put_recipe(pid, new)
@@ -450,7 +462,7 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
     def render(photo_id: str, body: RenderReq):
         _get(photo_id)
         try:
-            data, info = proc.render_preview(photo_id, body.recipe, body.before, body.max_edge,
+            data, info = proc.render_preview(photo_id, limited(body.recipe), body.before, body.max_edge,
                                              body.ignore_crop)
         except ValueError as e:
             raise HTTPException(409, str(e)) from None
@@ -463,7 +475,7 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
         if rec.get("decode_status") != "supported":
             raise HTTPException(409, "This photo has not been decoded.")
         try:
-            data, info = proc.render_region(photo_id, body.recipe, body.before,
+            data, info = proc.render_region(photo_id, limited(body.recipe), body.before,
                                             body.x, body.y, body.w, body.h)
         except BlockingIOError as e:
             raise HTTPException(503, str(e)) from None

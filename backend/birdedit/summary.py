@@ -54,7 +54,7 @@ def summarize(recipe: Recipe, facts: dict | None = None) -> str:
         else:
             level = "moderate" if e.noise_reduction >= 35 else "light"
         if e.use_mask:
-            extra = "much stronger" if e.background_nr >= 50 else "stronger"
+            extra = "much stronger" if e.background_nr >= 40 else "stronger"
             parts.append(f"applied {level} noise reduction to the bird and {extra} noise reduction to the background")
         else:
             parts.append(f"applied {level} noise reduction across the whole image")
