@@ -1,0 +1,165 @@
+"""Start Bird Photo Editor:  ``python -m birdedit``
+
+* Binds to 127.0.0.1 only.
+* Uses port 8765, or the next free port up to 8784. If an instance of this
+  app is already running on one of those ports, it just opens the browser.
+* Opens the default browser once the server answers.
+* On failure, writes the log file and (on Windows) shows a message box.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import logging.handlers
+import socket
+import sys
+import threading
+import time
+import traceback
+import urllib.request
+import webbrowser
+
+from .config import AppPaths, default_data_dir
+
+PORT_RANGE = range(8765, 8785)
+
+
+def message_box(title: str, text: str) -> None:
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, text, title, 0x10)
+            return
+        except Exception:
+            pass
+    print(f"\n{title}\n{text}\n", file=sys.stderr)
+
+
+def port_is_free(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        if sys.platform != "win32":
+            # Match uvicorn: a socket in TIME_WAIT does not block a POSIX bind.
+            # (On Windows SO_REUSEADDR would allow port hijacking; not used.)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind(("127.0.0.1", port))
+            return True
+        except OSError:
+            return False
+
+
+def existing_instance(port: int) -> bool:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=1) as r:
+            return json.loads(r.read().decode()).get("app") == "bird-photo-editor"
+    except Exception:
+        return False
+
+
+def pick_port(requested: int | None) -> tuple[int, bool]:
+    """Return (port, already_running)."""
+    if requested:
+        if port_is_free(requested):
+            return requested, False
+        if existing_instance(requested):
+            return requested, True
+        raise RuntimeError(f"Port {requested} is already used by another program. "
+                           f"Close that program or start with a different --port.")
+    for port in PORT_RANGE:
+        if existing_instance(port):
+            return port, True
+    for port in PORT_RANGE:
+        if port_is_free(port):
+            return port, False
+    raise RuntimeError(f"No free port between {PORT_RANGE.start} and {PORT_RANGE.stop - 1}. "
+                       "Close other programs using these ports and try again.")
+
+
+def setup_logging(paths: AppPaths) -> str:
+    log_file = paths.logs / "bird-photo-editor.log"
+    handler = logging.handlers.RotatingFileHandler(log_file, maxBytes=2_000_000, backupCount=3,
+                                                   encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.addHandler(handler)
+    console = logging.StreamHandler()
+    console.setLevel(logging.WARNING)
+    root.addHandler(console)
+    return str(log_file)
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="birdedit", description="Bird Photo Editor (local)")
+    ap.add_argument("--port", type=int, default=None)
+    ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--dev", action="store_true", help="allow the Vite dev server origin")
+    ap.add_argument("--token", default=None, help=argparse.SUPPRESS)
+    args = ap.parse_args(argv)
+
+    paths = AppPaths(default_data_dir())
+    try:
+        paths.ensure()
+    except OSError as e:
+        message_box("Bird Photo Editor", f"Cannot create the data folder:\n{paths.root}\n\n{e}")
+        return 2
+    log_file = setup_logging(paths)
+    log = logging.getLogger("birdedit")
+
+    try:
+        port, running = pick_port(args.port)
+    except RuntimeError as e:
+        message_box("Bird Photo Editor could not start", str(e))
+        return 3
+    url = f"http://127.0.0.1:{port}/"
+    if running:
+        print(f"Bird Photo Editor is already running at {url}")
+        if not args.no_browser:
+            webbrowser.open(url)
+        return 0
+
+    try:
+        import uvicorn
+
+        from .security import new_token
+        from .server import create_app
+
+        token = args.token or new_token()
+        dev_origins = ("http://localhost:5173", "http://127.0.0.1:5173") if args.dev else ()
+        app = create_app(token=token, port=port, dev_origins=dev_origins)
+        config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning",
+                                access_log=False, log_config=None)
+        server = uvicorn.Server(config)
+    except Exception:
+        log.exception("startup failed")
+        message_box("Bird Photo Editor could not start",
+                    f"{traceback.format_exc(limit=3)}\n\nDetails were written to:\n{log_file}")
+        return 4
+
+    def open_when_ready() -> None:
+        for _ in range(120):
+            if existing_instance(port):
+                print(f"\nBird Photo Editor is running at {url}")
+                print("Keep this window open while you work. Close it to quit.\n")
+                if args.dev:
+                    print(f"Dev token: {token}")
+                if not args.no_browser:
+                    webbrowser.open(url)
+                return
+            time.sleep(0.25)
+        message_box("Bird Photo Editor", f"The server did not start in time.\nSee {log_file}")
+
+    threading.Thread(target=open_when_ready, daemon=True).start()
+    try:
+        server.run()
+    except Exception:
+        log.exception("server crashed")
+        message_box("Bird Photo Editor stopped unexpectedly", f"See the log file:\n{log_file}")
+        return 5
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

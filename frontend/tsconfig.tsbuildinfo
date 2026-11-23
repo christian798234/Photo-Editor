@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/api.ts","./src/crop.ts","./src/main.tsx","./src/types.ts","./src/useRender.ts","./src/components/Adjustments.tsx","./src/components/CropOverlay.tsx","./src/components/ExportDialog.tsx","./src/components/Filmstrip.tsx","./src/components/InfoPanel.tsx","./src/components/JobsBar.tsx","./src/components/Viewer.tsx"],"version":"5.6.3"}

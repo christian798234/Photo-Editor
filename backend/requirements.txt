@@ -1,0 +1,28 @@
+# Bird Photo Editor - runtime dependencies (exact pins, all prebuilt wheels).
+# Verified to have win_amd64 wheels for CPython 3.12 and 3.13; no compiler needed.
+#
+# Image processing
+rawpy==0.28.0                   # LibRaw 0.22.2 bundled (RAW decoding)
+numpy==2.5.5
+opencv-python-headless==5.1.0.95  # fast filters/resizing (no GUI parts)
+pillow==13.0.0                  # JPEG I/O, ICC (LittleCMS)
+tifffile==2026.11.16            # 16-bit TIFF I/O
+ExifRead==3.5.1                 # metadata reading (pure Python)
+piexif==1.1.3                   # EXIF writing (pure Python)
+# Local web server
+fastapi==0.165.0
+starlette==1.10.0
+uvicorn==0.54.0
+python-multipart==0.0.34
+pydantic==2.14.4
+pydantic_core==2.50.5
+anyio==4.16.0
+h11==0.16.0
+idna==3.20
+click==8.5.1
+colorama==0.4.6 ; sys_platform == "win32"
+annotated-doc==0.0.7
+annotated-types==0.8.0
+typing-inspection==0.4.5
+typing_extensions==4.16.0
+opentelemetry-api==1.45.2
