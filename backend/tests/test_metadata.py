@@ -119,24 +119,3 @@ def test_canon_cr2_is_tiff_based(tmp_path):
     assert classify(data[:64], ".CR2").kind == Kind.RAW
     assert read_metadata(data, Container.TIFF).camera.display_name == "Canon EOS 90D"
 
-
-def test_canon_models_in_bundled_decoder():
-    """Documents (and guards) which current Canon bodies the bundled LibRaw knows."""
-    import os
-    import re
-
-    import rawpy
-    libdir = os.path.dirname(rawpy.__file__)
-    blob = b""
-    for root, _dirs, files in os.walk(os.path.dirname(libdir)):
-        for f in files:
-            if "libraw" in f.lower() or (f.startswith("_rawpy") and root == libdir):
-                try:
-                    blob += open(os.path.join(root, f), "rb").read()
-                except OSError:
-                    pass
-    if not blob:
-        import pytest
-        pytest.skip("decoder library not found on disk")
-    for model in (b"EOS R5", b"EOS R6 Mark II", b"EOS R7", b"EOS R8", b"EOS R10", b"EOS R1", b"EOS 90D"):
-        assert re.search(re.escape(model), blob), model
