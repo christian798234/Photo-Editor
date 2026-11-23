@@ -60,7 +60,8 @@ export function App() {
   const toast = useCallback((text: string, kind: "info" | "error" = "info") => {
     const id = Date.now() + Math.random();
     setToasts((t) => [...t, { id, text, kind }]);
-    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === "error" ? 9000 : 4500);
+    // Errors stay until closed so they can be read and copied.
+    if (kind !== "error") window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4500);
   }, []);
   const fail = useCallback((e: unknown) => toast(e instanceof Error ? e.message : String(e), "error"), [toast]);
 
@@ -592,7 +593,11 @@ export function App() {
                 }).catch(fail)}
                 onChange={onChange} />
               <HistoryPanel history={historyView} onJump={jumpTo} />
-              {version && <p className="small muted version-line">Bird Photo Editor {version}</p>}
+              <div className="row end version-line">
+                <button className="ghost small-btn" onClick={() => api.openLogs().catch(fail)}
+                  title="Open the folder with the log file (useful when reporting a problem)">Open log folder</button>
+                {version && <span className="small muted">Bird Photo Editor {version}</span>}
+              </div>
             </>
           ) : (
             <p className="muted pad">No photo selected.</p>
@@ -606,7 +611,18 @@ export function App() {
       )}
 
       <div className="toasts" aria-live="assertive">
-        {toasts.map((t) => <div key={t.id} className={`toast ${t.kind}`}>{t.text}</div>)}
+        {toasts.map((t) => (
+          <div key={t.id} className={`toast ${t.kind}`} role={t.kind === "error" ? "alert" : "status"}>
+            <span className="toast-text">{t.text}</span>
+            {t.kind === "error" && (
+              <span className="toast-actions">
+                <button onClick={() => navigator.clipboard?.writeText(t.text).then(
+                  () => toast("Copied. You can paste it with Ctrl+V."), () => {})}>Copy</button>
+                <button aria-label="Close message" onClick={() => setToasts((x) => x.filter((y) => y.id !== t.id))}>×</button>
+              </span>
+            )}
+          </div>
+        ))}
       </div>
       {dragOver && <div className="drop-hint">{shell === "desktop"
         ? "Drop photos or a folder to import (originals are linked, never changed)"

@@ -51,6 +51,14 @@ def needs_converter_message(camera: str, high_efficiency: bool) -> str:
             "(your original is not changed).")
 
 
+def profile_warning_message(camera: str) -> str:
+    cam = camera if camera and camera != "Unknown camera" else "this camera"
+    return (f"The RAW decoder built into this app does not yet have a colour profile for {cam}, so "
+            "colours may be inaccurate (and the edges may include unused sensor pixels). Install the "
+            "free Adobe DNG Converter and click Try again: the app then converts these files "
+            "automatically and uses Adobe's profile for your camera. Your original is not changed.")
+
+
 class FullResCache:
     """At most one full-resolution decoded image in memory (it can be 0.5 GB)."""
 
@@ -259,6 +267,24 @@ class Processor:
                           decode_error=f"Adobe DNG Converter could not convert this file: {msg}",
                           high_efficiency=he)
                 return {"item": photo_id, "ok": False, "message": f"{name}: conversion failed"}
+        # The decoder read the file but has no colour profile for this (newer)
+        # camera: colours would be guesswork. Prefer Adobe's DNG, which has one.
+        profile_missing = sniff.kind == formats.Kind.RAW and converted is None and \
+            not dec.info.get("profile_known", True)
+        if profile_missing:
+            exe = converter.find_dng_converter()
+            if exe is not None:
+                st.update(photo_id, status_message="Converting with Adobe DNG Converter (camera profile)...")
+                try:
+                    converted = converter.convert_to_dng(Path(rec["source"]["path"]), st.cache_dir(photo_id), exe)
+                    dng = converted.read_bytes()
+                    dec = decode.decode(dng, formats.classify(dng[:64], ".dng"), half=True,
+                                        camera_name=md.camera.display_name)
+                    del dng
+                    profile_missing = False
+                except (converter.ConversionError, decode.DecodeError, OSError):
+                    log.exception("conversion for missing camera profile failed")
+                    converted = None
         del data
         job.item_progress = 0.7
         nm = noise.estimate(dec.image, dec.noise_native_scale, md.iso)
@@ -275,7 +301,8 @@ class Processor:
         st.update(photo_id, status="ready", status_message="Ready", decode_status="supported",
                   decode_error="", metadata=md.to_dict(), decoder_info=info,
                   full_size=full_size, noise_model=nm.to_dict(), preview_kind="rendered",
-                  converted_dng=converted is not None)
+                  converted_dng=converted is not None,
+                  profile_warning=(profile_warning_message(md.camera.display_name) if profile_missing else ""))
         return {"item": photo_id, "ok": True, "message": f"{name}: ready"}
 
     # ------------------------------------------------------------- auto

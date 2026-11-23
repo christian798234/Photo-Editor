@@ -87,6 +87,40 @@ def _raw_full_size(raw: rawpy.RawPy) -> tuple[int, int]:
     return int(w), int(h)
 
 
+def _crop_rect(raw: rawpy.RawPy) -> tuple[int, int, int, int] | None:
+    """The camera's official image area (from maker notes or DNG DefaultCrop),
+    in unrotated sensor coordinates, if it is smaller than the decoded frame."""
+    s = raw.sizes
+    if s.crop_width > 0 and s.crop_height > 0 and (s.crop_width < s.width or s.crop_height < s.height):
+        x, y = int(s.crop_left_margin), int(s.crop_top_margin)
+        w, h = min(int(s.crop_width), s.width - x), min(int(s.crop_height), s.height - y)
+        if w > 16 and h > 16:
+            return x, y, w, h
+    return None
+
+
+def _rotate_rect(rect, W: int, H: int, flip: int):
+    """Map a rectangle in unrotated coordinates (frame W x H) through LibRaw's flip."""
+    x, y, w, h = rect
+    if flip == 3:
+        return W - x - w, H - y - h, w, h
+    if flip == 5:      # rotated 90 degrees counter-clockwise
+        return y, W - x - w, h, w
+    if flip == 6:      # rotated 90 degrees clockwise
+        return H - y - h, x, h, w
+    return x, y, w, h
+
+
+def profile_known(raw: rawpy.RawPy, is_dng: bool) -> bool:
+    """Does the decoder have a colour profile for this camera? (DNGs carry their own.)"""
+    if is_dng:
+        return True
+    try:
+        return bool(np.any(np.abs(np.asarray(raw.rgb_xyz_matrix)[:3]) > 1e-6))
+    except Exception:
+        return True
+
+
 def raw_info(raw: rawpy.RawPy) -> dict:
     wb = [float(x) for x in raw.camera_whitebalance]
     has_wb = any(x > 0 for x in wb[:3])
@@ -99,6 +133,9 @@ def raw_info(raw: rawpy.RawPy) -> dict:
         "white_level": int(raw.white_level),
         "black_levels": [int(x) for x in raw.black_level_per_channel],
         "flip": int(raw.sizes.flip),
+        "sensor_frame": [int(raw.sizes.width), int(raw.sizes.height)],
+        "official_crop": list(_crop_rect(raw) or []),
+        "rgb_xyz_matrix": [[round(float(v), 4) for v in row] for row in np.asarray(raw.rgb_xyz_matrix)[:3]],
     }
 
 
@@ -121,6 +158,9 @@ def _postprocess(raw: rawpy.RawPy, half: bool) -> np.ndarray:
 
 def decode_raw(data: bytes, half: bool, camera_name: str = "", md=None) -> Decoded:
     raw = _open_raw(data, camera_name)
+    # DNGVersion tag (50706 = 0xC612) in the first IFD: byte order depends on the file.
+    is_dng = ((data[:4] == b"II*\x00" and b"\x12\xc6\x01\x00" in data[:65536]) or
+              (data[:4] == b"MM\x00*" and b"\xc6\x12\x00\x01" in data[:65536]))
     try:
         if md is not None:
             from .metadata import apply_libraw_fields
@@ -128,6 +168,9 @@ def decode_raw(data: bytes, half: bool, camera_name: str = "", md=None) -> Decod
         try:
             full = _raw_full_size(raw)
             info = raw_info(raw)
+            crop = _crop_rect(raw)
+            known = profile_known(raw, is_dng)
+            W0, H0, flip = int(raw.sizes.width), int(raw.sizes.height), int(raw.sizes.flip)
         except Exception as e:
             raise _libraw_error(e, camera_name) from e
         if full[0] * full[1] > MAX_PIXELS:
@@ -147,6 +190,18 @@ def decode_raw(data: bytes, half: bool, camera_name: str = "", md=None) -> Decod
     if float(img.max()) <= 1e-6:
         raise DecodeError("The RAW file decoded to an empty image; the file is probably "
                           "damaged or incomplete.")
+    info["profile_known"] = known
+    log.info("decoded %s: frame %sx%s flip %s, official crop %s, colour profile %s",
+             camera_name or "RAW", W0, H0, flip, crop, "known" if known else "MISSING")
+    if crop is not None:
+        # Keep only the camera's official image area (drops border pixels).
+        fx = img.shape[1] / (H0 if flip in (5, 6) else W0)
+        x, y, w, h = _rotate_rect(crop, W0, H0, flip)
+        x0, y0 = int(round(x * fx)), int(round(y * fx))
+        x1 = min(img.shape[1], int(round((x + w) * fx)))
+        y1 = min(img.shape[0], int(round((y + h) * fx)))
+        img = np.ascontiguousarray(img[y0:y1, x0:x1])
+        full = (int(w), int(h))         # already in displayed (rotated) orientation
     scale = img.shape[1] / full[0]
     # A half-size LibRaw image picks (does not average) one pixel per 2x2
     # Bayer quad, so its per-pixel noise is close to full-resolution noise.

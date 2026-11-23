@@ -41,6 +41,15 @@ export function InfoPanel({ photo, onLocate, onRetry }: { photo: Photo; onLocate
       </dl>
       {photo.format_note && <p className="small warn">{photo.format_note}</p>}
       {photo.decode_error && <p className="error-text" role="alert">{photo.decode_error}</p>}
+      {photo.profile_warning && (
+        <div className="profile-warning" role="alert">
+          <p className="small warn">{photo.profile_warning}</p>
+          <div className="row">
+            <button onClick={() => api.openHelp("dng_converter").catch(() => {})}>Get Adobe DNG Converter (free)</button>
+            <button className="primary" onClick={onRetry}>Try again</button>
+          </div>
+        </div>
+      )}
       {photo.decode_status === "needs_converter" && (
         <div className="row">
           <button onClick={() => api.openHelp("dng_converter").catch(() => {})}>Get Adobe DNG Converter (free)</button>

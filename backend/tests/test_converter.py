@@ -98,3 +98,36 @@ def test_help_link_is_fixed(client, monkeypatch):
     assert client.post("/api/open-help", json={"topic": "dng_converter"}).json()["url"].startswith("https://helpx.adobe.com/")
     assert client.post("/api/open-help", json={"topic": "https://evil.example"}).status_code == 404
     assert opened == [converter.DOWNLOAD_PAGE]
+
+
+def test_missing_camera_profile_is_flagged_or_converted(client, tmp_path, monkeypatch):
+    from birdedit import decode as dec_mod
+    from conftest import make_jpeg, gradient_image  # noqa: F401
+    real = dec_mod.profile_known
+    # Simulate a camera the decoder has no profile for (cannot be produced synthetically).
+    calls = {"n": 0}
+
+    def fake_known(raw, is_dng):
+        # First decode of each import = the camera file (no profile);
+        # a later decode = Adobe's DNG (has a profile).
+        calls["n"] += 1
+        return calls["n"] > 1
+
+    monkeypatch.setattr(dec_mod, "profile_known", fake_known)
+    src = make_synthetic_dng(tmp_path / "a7v.ARW")       # TIFF-based RAW content, decodable
+    # 1) no converter installed: decoded, but with a clear warning
+    monkeypatch.setenv("BIRDEDIT_DNG_CONVERTER", str(tmp_path / "missing.exe"))
+    store = client.app.state.store
+    rec = store.create(src, "linked", src.name)
+    client.post(f"/api/photos/{rec['id']}/reprocess")
+    wait_jobs(client)
+    p = client.get(f"/api/photos/{rec['id']}").json()
+    assert p["decode_status"] == "supported" and "colour profile" in p["profile_warning"]
+    # 2) converter installed: converted automatically, warning gone
+    monkeypatch.setenv("BIRDEDIT_DNG_CONVERTER", str(fake_converter(tmp_path)))
+    calls["n"] = 0
+    client.post(f"/api/photos/{rec['id']}/reprocess")
+    wait_jobs(client)
+    p = client.get(f"/api/photos/{rec['id']}").json()
+    assert p["decode_status"] == "supported" and p["converted_dng"] is True and p["profile_warning"] == ""
+    assert real is not None

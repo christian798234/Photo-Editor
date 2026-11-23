@@ -103,3 +103,25 @@ def make_synthetic_dng(path: Path, make="NIKON CORPORATION", model="NIKON Z6_3",
         (50714, "H", 1, (512,), True), (50717, "H", 1, (16383,), True), (50721, "2i", 9, srat, True),
         (50778, "H", 1, (21,), True), (50728, "2I", 3, (5000, 10000, 10000, 10000, 7000, 10000), True)])
     return path
+
+
+def make_dng_with_crop(path: Path, orientation: int = 1, crop=(8, 4, 584, 392), profile: bool = True) -> Path:
+    """Synthetic DNG with DefaultCrop and an Orientation tag; asymmetric content."""
+    import tifffile
+    h, w = 400, 600
+    yy, xx = np.mgrid[0:h, 0:w]
+    scene = 0.05 + 0.4 * (xx / w) + 0.3 * (yy / h) ** 2
+    scene[30:60, 40:90] = 0.9                       # marker near the top-left
+    raw = (512 + scene * (16383 - 512)).clip(0, 16383).astype(np.uint16)
+    cm = [1.0, -0.2, -0.1, -0.3, 1.2, 0.1, -0.05, 0.2, 0.8]
+    srat = [x for v in cm for x in (int(round(v * 10000)), 10000)]
+    tags = [(271, "s", 0, "SONY", True), (272, "s", 0, "ILCE-TEST", True), (274, "H", 1, (orientation,), True),
+            (50706, "B", 4, (1, 4, 0, 0), True), (50708, "s", 0, "Sony Test", True),
+            (33421, "H", 2, (2, 2), True), (33422, "B", 4, (0, 1, 1, 2), True),
+            (50714, "H", 1, (512,), True), (50717, "H", 1, (16383,), True),
+            (50728, "2I", 3, (10000, 10000, 10000, 10000, 10000, 10000), True),
+            (50719, "I", 2, crop[:2], True), (50720, "I", 2, crop[2:], True)]
+    if profile:
+        tags += [(50721, "2i", 9, srat, True), (50778, "H", 1, (21,), True)]
+    tifffile.imwrite(path, raw, photometric=32803, metadata=None, extratags=tags)
+    return path

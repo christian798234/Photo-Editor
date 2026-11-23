@@ -110,6 +110,7 @@ export const api = {
   cancelJob: (id: string) => json(`/api/jobs/${id}/cancel`, { method: "POST" }),
   chooseFolder: () => json<{ path: string }>("/api/dialog/folder", { method: "POST" }),
   export: (body: object) => json<Job>("/api/export", { method: "POST", body: JSON.stringify(body) }),
+  openLogs: () => json<{ ok: boolean; path: string }>("/api/open-logs", { method: "POST" }),
   openHelp: (topic: "dng_converter") => json("/api/open-help", { method: "POST", body: JSON.stringify({ topic }) }),
   openFolder: (path: string) => json("/api/open-folder", { method: "POST", body: JSON.stringify({ path }) }),
   settings: () => json<Settings>("/api/settings"),

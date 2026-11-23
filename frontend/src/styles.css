@@ -231,3 +231,7 @@ input[type="number"] { width: 90px; }
   border-radius: 4px; font-size: 12px; transition: opacity .4s; }
 .ss-info.hidden { opacity: 0; }
 .version-line { margin-top: 16px; text-align: right; }
+.toast { display: flex; gap: 12px; align-items: flex-start; user-select: text; }
+.toast-text { flex: 1; white-space: pre-wrap; }
+.toast-actions { display: flex; gap: 6px; }
+.toast-actions button { padding: 1px 8px; font-size: 12px; }

@@ -76,6 +76,7 @@ export interface Photo {
   decode_status: "pending" | "supported" | "unsupported" | "failed" | "needs_converter";
   high_efficiency?: boolean;
   converted_dng?: boolean;
+  profile_warning?: string;
   decode_error: string;
   decode_detail?: string;
   format_note?: string;

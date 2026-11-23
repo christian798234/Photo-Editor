@@ -620,6 +620,14 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
         webbrowser.open(url)
         return {"ok": True, "url": url}
 
+    @app.post("/api/open-logs")
+    def open_logs():
+        """Open the app's log folder in File Explorer (Windows)."""
+        if sys.platform != "win32":
+            raise HTTPException(501, f"Log folder: {paths.logs}")
+        os.startfile(io_path(paths.logs))  # type: ignore[attr-defined]
+        return {"ok": True, "path": str(paths.logs)}
+
     @app.post("/api/open-folder")
     def open_folder(body: dict):
         path = str(body.get("path", ""))
