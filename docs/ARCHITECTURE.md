@@ -15,9 +15,16 @@ FastAPI backend (Python)  ──  job pools: "import" (1 worker), "heavy" (1 wor
    ├─ summary.py    plain-language summary from the effective parameters
    ├─ store.py      project records, recipes, preview caches (atomic writes)
    ├─ export.py     JPEG / 16-bit TIFF, ICC, EXIF/XMP, GPS policy, unique names
-   ├─ dialogs.py    native Windows file/folder pickers (tkinter, child process)
+   ├─ masks.py      optional bird detection (YOLOX) + segmentation (MobileSAM), ONNX Runtime
+   ├─ app_window.py desktop control window of the installed app (hosts native dialogs)
+   ├─ dialogs.py    native Windows file/folder pickers (tkinter)
    └─ security.py   localhost guard middleware
 ```
+
+The installed app is `BirdPhotoEditor.exe` (PyInstaller one-folder build, `packaging/birdedit.spec`)
+wrapped by an Inno Setup installer (`packaging/installer.iss`), both produced and smoke-tested by
+`.github/workflows/windows-build.yml` on a Windows runner. The .exe shows a small control window and runs
+the same server as `python -m birdedit`.
 
 `python -m birdedit` picks a free port (8765–8784), detects an already-running copy, starts
 uvicorn bound to 127.0.0.1, opens the browser, and reports startup failures with a message box
@@ -34,6 +41,7 @@ and a log file. The UI is a static build, so end users need no Node.js.
 | 3 | **Color intensity** | linear ProPhoto | Vibrance: boosts low-saturation colours more than already-saturated ones; negative values desaturate. |
 | 4 | **Gamut map → linear sRGB** | float32 | LibRaw's ProPhoto↔sRGB matrix (verified to match LibRaw's own sRGB output on a real NEF). Out-of-gamut colours are desaturated toward their own luminance, not clipped per channel. |
 | 5 | **sRGB transfer curve** | display-encoded float32 | |
+| 5' | **Subject weighting** (optional) | per-pixel maps | With a valid bird mask (resampled to the render region): NR strength map = 0.8·NR on the bird, NR + 1.2·background NR elsewhere; sharpening weight 1 on the bird, 0.35 on the background. See docs/BIRD_DETECTION.md. |
 | 6 | **Noise reduction** | Y/Cb/Cr on display values | Laplacian-pyramid shrinkage (non-negative garrote). Thresholds per pixel = *k* × expected noise, where expected noise = measured sensor model σ(Y) × the derivative of stages 1–5 at that pixel's brightness × resolution factor. Luma keeps 18% of the removed detail to avoid a plastic look; chroma is smoothed more strongly. |
 | 7 | **Sharpening / local contrast** | luma on display values | Unsharp mask (radius ≈ 0.9 px at 100%) gated by the residual noise level; overshoot clamped to the local 3×3 range (+0.008 bright, −0.02 dark) to prevent halos. Local contrast (Crisp look) uses an edge-aware guided filter, weighted to midtones. |
 | 8 | **Export** | uint16 tiles → 8/16-bit file | Tiled (1024 px + 128 px context, aligned to the pyramid grid), so memory is bounded and output matches region renders (verified < 2×10⁻⁴ difference). Optional resize in linear light. JPEG 8-bit or TIFF 16-bit, sRGB ICC embedded. |
@@ -71,6 +79,8 @@ Computed from the linear preview and the measured noise model:
   projects\default\photos\<id>\recipe.json   look, strength, sliders, internal values, crop,
                                              pipeline_version, schema_version
   projects\default\photos\<id>\facts.json    auto-analysis facts (for the summary)
+  projects\default\photos\<id>\history.json  named edit steps + current position (undo/redo)
+  projects\default\photos\<id>\mask.png|json bird selection and its provenance/quality
   cache\<id>\preview.npy|thumb.jpg|embedded.jpg
   imported-files\<random>\<name>             copies of files dragged into the browser
   logs\, settings.json

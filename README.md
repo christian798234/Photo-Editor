@@ -10,42 +10,48 @@ export finished JPEG or 16-bit TIFF files.
   batches are fine.
 * Never modifies your original files.
 
-> **Status:** working MVP (Milestones 1 and 2). It is started with a double-click launcher; it is
-> **not** a packaged Windows installer (.exe/.msi). See [What has and has not been verified](#what-has-and-has-not-been-verified).
+> **Status:** Milestones 1–3 implemented. A Windows installer (`BirdPhotoEditor-Setup-x.y.z.exe`) is built
+> automatically on GitHub's Windows machines. See [What has and has not been verified](#what-has-and-has-not-been-verified).
 
 ---
 
-## 1. Install (one time)
+## 1. Install
 
-You need **Windows 11**, about **1.5 GB** of free disk space and an internet connection for
-setup. 8 GB of RAM works; 16 GB is recommended for 45-megapixel cameras.
+You need **Windows 10 or 11 (64-bit)** and about **600 MB** of free disk space. 8 GB of RAM works; 16 GB is
+recommended for 45-megapixel cameras. No Python or other software is needed.
 
-1. **Install Python 3.12** from <https://www.python.org/downloads/windows/>
-   ("Windows installer (64-bit)"). The default options are fine. Keep **"tcl/tk and IDLE"**
-   ticked, because it provides the Windows file picker.
-   *If you skip this step, Setup offers to install Python 3.12 for you with `winget`.*
-2. Unzip the Bird Photo Editor folder somewhere in your user folder, e.g. `Documents\Bird Photo Editor`.
-3. Double-click **`Setup Bird Photo Editor.bat`**. It takes a few minutes and does not need administrator rights.
+1. Download **`BirdPhotoEditor-Setup-x.y.z.exe`**: from the repository's **Releases** page, or from the
+   latest successful **Actions → Windows installer** run (under *Artifacts*; GitHub sign-in required).
+2. Double-click it. The installer is **not code-signed**, so Windows SmartScreen may say *"Windows protected
+   your PC"*. Click **More info → Run anyway**.
+3. Click through the installer. It installs for your user account only (**no administrator rights**). Leave
+   **"Bird detection models"** ticked if you want bird-aware editing (adds about 80 MB). Optionally tick
+   *Create a desktop shortcut*.
 
-Prefer PowerShell? Open PowerShell in the app folder and run:
+Updating: run a newer installer; your photos, edits and history are kept.
+Uninstalling: *Settings → Apps → Installed apps → Bird Photo Editor → Uninstall*. You'll be asked whether to
+also delete your saved edits and previews. Your original photos and exports are never touched.
+
+## 2. Start
+
+Open **Bird Photo Editor** from the Start menu or desktop. A small window says *"Bird Photo Editor is running"*
+and your web browser opens the editor. Use **Open in browser** if you close the tab; click **Quit** (or close the
+small window) to stop the app.
+
+<details>
+<summary>Alternative: run from the source code (developers, or if you prefer not to use the installer)</summary>
+
+Install Python 3.12 from python.org, then double-click `Setup Bird Photo Editor.bat` once and
+`Start Bird Photo Editor.bat` each time. PowerShell equivalents:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Setup.ps1
 ```
 
-`-ExecutionPolicy Bypass` applies only to this one command; it does not change your system settings.
-
-## 2. Start
-
-Double-click **`Start Bird Photo Editor.bat`** (or the desktop shortcut Setup can create). Your
-browser opens at `http://127.0.0.1:8765/` (or the next free port). A console window titled
-*"Bird Photo Editor - keep this window open"* stays open: **closing it quits the app.**
-
-Starting it a second time just opens the browser on the copy that is already running.
-
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Start-BirdPhotoEditor.ps1
 ```
+</details>
 
 ## 3. Using it
 
@@ -72,9 +78,37 @@ It is generated from the actual settings.
 * **Advanced** (hidden by default): tint, contrast, black point and local contrast, which Auto Edit sets per photo.
 * **Crop:** Original, Free, 3:2, 4:3, 1:1, 16:9 (with a portrait option). The remaining pixel size is
   shown while you crop. There are no automatic crop suggestions (see Limitations).
-* **Undo / Redo** (Ctrl+Z / Ctrl+Y), **Reset** (back to the unedited baseline), **Copy settings / Paste settings**.
+* **Copy settings / Paste settings**.
   Paste applies the look, strength and sliders to the current photo, or to every selected photo
   (Ctrl-click or Shift-click thumbnails). Camera-specific color data is never copied between photos.
+
+### Undoing edits
+
+* **Undo / Redo** buttons (or Ctrl+Z / Ctrl+Y) step backwards and forwards.
+* The **History** panel (bottom of the right-hand panel) lists every step by name, e.g. *"Auto Edit
+  (Natural)"*, *"Exposure +0.30 EV"*, *"Crop 3:2"*. Click any step to return to exactly that state. Steps you
+  undo stay listed (greyed out) until you make a new change, so you can jump forward again.
+* Each slider has a **↺** button (or double-click the slider) that puts it back to the value Auto Edit chose.
+* **Revert to original** returns to the unedited photo. It is itself a history step, so it can be undone.
+* History is saved with the project and is still there after you close and reopen the app.
+
+### Bird selection (optional)
+
+With the bird detection models installed, the **Bird selection** panel asks once whether to turn detection on.
+Nothing is uploaded; it runs on your PC. Once on, **Auto Edit** looks for birds and, when it finds a reliable
+outline:
+
+* measures **exposure on the bird** rather than the whole frame (helps dark birds against bright sky);
+* applies **stronger noise reduction to the background** and gentler noise reduction and full sharpening to the bird
+  (*Background noise reduction* slider);
+* enables the **Soft Background** look (much stronger background noise reduction; it never blurs or replaces
+  the background) and **Suggest crop** (keeps the whole bird with space around it).
+
+Tick **Show selection** to see what was selected (red tint). To fix it, choose **+ Bird** and click parts that
+were missed (or a bird that wasn't found), or **− Not bird** and click areas wrongly included. If the outline
+fails the app's quality checks it is **not used automatically**; you'll see a message and can refine it or
+choose **Use anyway**. If no bird is found, the photo is edited globally as before. The app never generates,
+invents or repaints feathers, eyes or backgrounds. Details: [docs/BIRD_DETECTION.md](docs/BIRD_DETECTION.md).
 
 ### What "Before" means
 
@@ -132,8 +166,8 @@ file's new location. If the file isn't identical to the one imported, you'll be 
 * The app's server listens only on `127.0.0.1` (your own computer), never on your network.
 * Requests must carry a secret that is created each time the app starts and is known only to the
   page it serves. Requests from other websites and other host names are refused.
-* No photos, metadata or usage data are sent anywhere. The app makes no internet connections at all
-  (Setup downloads Python packages once).
+* No photos, metadata or usage data are sent anywhere. The app makes no internet connections at all.
+  The bird detection models are included in the installer; nothing is downloaded later.
 
 ---
 
@@ -141,69 +175,70 @@ file's new location. If the file isn't identical to the one imported, you'll be 
 
 **Working**
 
+* Windows installer (per-user, no admin), desktop window, Start menu shortcut, uninstaller.
 * Import (Windows dialog, drag-and-drop), content-based format detection, per-file camera identification.
 * Genuine RAW decoding with LibRaw (via rawpy). The embedded camera JPEG is shown, clearly labelled, only until the RAW rendering is ready.
 * Automatic, image-dependent editing (exposure with highlight protection, moderate shadow lift,
   conservative white-balance refinement, tone/contrast, vibrance-style color, measured-noise-based
-  noise reduction, halo-limited sharpening). Natural and Crisp Detail looks.
+  noise reduction, halo-limited sharpening). Natural, Crisp Detail and (with a bird selection) Soft Background looks.
+* Optional local bird detection and segmentation with quality checks, click-to-refine, bird-metered
+  exposure, background-weighted noise reduction and crop suggestions.
 * Before/after slider, side-by-side, fit and real 100% view with panning.
-* Sliders, advanced controls, crop with aspect ratios, undo/redo/reset, copy/paste settings.
+* Sliders with per-slider reset, advanced controls, crop with aspect ratios, saved named history with
+  click-to-jump, undo/redo, revert to original, copy/paste settings.
 * Batch import, Auto Edit All and batch export with progress, cancellation and per-file results.
 * Nondestructive recipes, project reopening, missing-original handling.
 * JPEG and 16-bit TIFF export with ICC profile and metadata policy.
 
-**Optional / not installed**
+**Not included**
 
-* **Bird-aware (subject mask) processing, Soft Background look and automatic crop suggestions:** not
-  implemented yet (Milestone 3). Nothing in the app claims to detect birds, eyes or feathers. See
-  [docs/SUBJECT_MASKS_PROPOSAL.md](docs/SUBJECT_MASKS_PROPOSAL.md). Model files would only be
-  downloaded after you agree.
-* **GPU acceleration:** not implemented; all processing is on the CPU.
+* GPU acceleration (all processing, including bird detection, runs on the CPU).
+* Lens-profile, distortion, vignetting or chromatic-aberration correction; hot-pixel removal; local brushes.
 
 **Known limitations**
 
-* All adjustments are global (whole image). The centre-weighted exposure metering is a heuristic,
-  not subject detection, so a small bird far from the centre may not be metered ideally.
-* Noise reduction smooths noise; it cannot restore detail that was never recorded. Clipped
-  (blown-out) highlights and missed focus cannot be recovered. The summary warns when a noticeable
-  part of the photo was clipped in camera.
-* No lens-profile, distortion, vignetting or chromatic-aberration correction (not implemented, so not offered).
-* No hot-pixel removal, healing, or local brushes.
+* The installer is not code-signed, so SmartScreen warns on first run (signing needs a paid certificate).
+* Bird detection can miss small, distant, camouflaged or partly hidden birds, and fine feather edges are
+  approximate. Selections are computed at preview resolution and softened, which is fine for steering
+  noise reduction but is not a precise cut-out. The direction the bird faces is not detected, so crop
+  suggestions centre the bird with even margins.
+* Without a bird selection, exposure metering is centre-weighted (a heuristic).
+* Noise reduction smooths noise; it cannot restore detail that was never recorded. Clipped highlights and
+  missed focus cannot be recovered.
 * Fit-view previews approximate noise reduction and sharpening; the **100% view and exports are exact**.
-* Previews at fit size take roughly 0.3 to 1 s to update after a slider change. Exporting a 12 MP RAW took
-  about 6 s on the 4-core test machine (decode + processing). Your speed will differ.
-* Not a packaged Windows installer: Python is required and is set up by `Setup Bird Photo Editor.bat`.
+* Measured on the 4-core Linux test machine (your speed will differ): fit-view updates 0.3–1 s; a 12 MP RAW
+  export about 6 s; bird detection 0.5–2.6 s per photo; a selection refinement click about 0.15 s.
 
 ## What has and has not been verified
 
 | Item | Status |
 |---|---|
-| Automated tests (65 tests) | Pass on Linux (Python 3.13). Windows paths, long paths and reserved names are tested by simulating Windows path rules. |
-| Real **Nikon** RAW | Verified end-to-end with one public NEF (Nikon D3S, ISO 3200, NASA image): identify → decode → auto edit → 100% view → JPEG and 16-bit TIFF export. |
-| Real **Sony** RAW | **Not verified**: no Sony ARW sample was available. Sony identification logic is tested with synthetic files only. **Please supply one or more ARW files.** |
-| Other real RAW files | Only metadata-only stub files (Canon CR3, Fujifilm RAF, Panasonic RW2, DNG, Nikon D70): camera identification works; their decode errors are reported correctly. |
-| Bird-specific visual quality | **Not verified**: no bird photographs were available (dark bird on bright sky, white bird, high-ISO, small bird, several birds, no bird). |
-| **Windows 11** | **Not run on Windows.** Development and testing happened on Linux. All packages were confirmed to exist as prebuilt Windows wheels for Python 3.12/3.13, but `Setup.ps1`, the launcher, the Windows file dialogs and "Open folder" have not been executed on Windows. |
+| Automated tests (76 tests) | Pass on Linux. The GitHub Actions workflow also runs them on Windows; see the latest *Windows installer* run for its result. |
+| **Windows installer** | Built by GitHub Actions on `windows-latest`. That run installs it silently (into a folder with spaces and Unicode), starts the installed app, imports a test photo, auto-edits it with bird detection on, exports JPEG and 16-bit TIFF, checks the files, then uninstalls. The interactive parts (SmartScreen prompt, clicking through the wizard, the desktop window, native file dialogs) have not been tried by a person on Windows. |
+| Real **Nikon** RAW | Verified end-to-end with one public NEF (Nikon D3S, ISO 3200, NASA image). |
+| Real **Sony** RAW | **Not verified**: no Sony ARW sample was available. **Please supply ARW files.** |
+| Bird detection | Verified on **one** real bird photo (an eagle, from the darknet project's sample images): detected, outline passed the quality checks, click refinement worked. Correctly found no bird in two non-bird photos. Composite test images (two birds; one small bird) behaved as expected: both birds selected; the small one was found but its outline was rejected as uncertain. Your own bird photos are still needed for a real assessment. |
+| Bird-photo editing quality | **Not verified** on the cases you listed (dark bird on bright sky, white bird, high ISO, small bird, multiple birds, no bird) with real files. |
 
 ## Troubleshooting
 
 * **"Port … is already used by another program"**: another program is using ports 8765–8784. Close it, or run
   `.\scripts\Start-BirdPhotoEditor.ps1 --port 9000`.
 * **Setup says no Python found**: install Python 3.12 (64-bit) from python.org and run Setup again.
-* **The Windows file picker doesn't appear**: Python's tcl/tk component is missing (Setup warns about
-  this). Drag photos onto the window instead, or modify your Python install to add "tcl/tk and IDLE".
-* **Windows SmartScreen warns about the .bat file**: choose *More info → Run anyway*, or right-click the
-  downloaded zip → *Properties* → *Unblock* before extracting.
+* **The Windows file picker doesn't appear**: drag photos onto the browser window instead.
+
 * **Logs:** `%LOCALAPPDATA%\BirdPhotoEditor\logs\bird-photo-editor.log`.
-* **Uninstall:** delete the app folder and `%LOCALAPPDATA%\BirdPhotoEditor` (this removes edits, previews and copies of
-  dragged-in photos; your original photos and exports are not affected).
+* **"Windows protected your PC"**: the installer isn't code-signed. Click *More info → Run anyway*.
+* **Bird detection says "not installed"**: re-run the installer and tick *Bird detection models*.
 
 ---
 
 ## For developers
 
-Ordinary users need only Python (installed by Setup). Developers additionally need **Node.js 18+**
-to rebuild the web interface; the built files are committed in `backend/birdedit/web/`.
+Ordinary users only need the installer. Developers need Python 3.12 and **Node.js 18+** (the built web
+files are committed in `backend/birdedit/web/`). The installer is built by
+`.github/workflows/windows-build.yml` (PyInstaller spec and Inno Setup script in `packaging/`); run it manually
+from the Actions tab with *Publish the installer as a GitHub Release* ticked to create a Release.
 
 ```powershell
 # backend tests
@@ -213,7 +248,8 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python -m pytest -q
 
 # optional: real-camera end-to-end tests (skipped, and reported as unverified, without samples)
-$env:BIRDEDIT_SAMPLES = "D:\raw-samples"
+$env:BIRDEDIT_SAMPLES = "D:\raw-samples"         # real NEF/ARW files
+$env:BIRDEDIT_BIRD_SAMPLES = "D:\bird-jpegs"     # real bird photos for the detection test
 .\.venv\Scripts\python -m pytest -q tests\test_raw_samples.py -rs
 ```
 

@@ -1,3 +1,13 @@
+"""Convert the official MobileSAM weights to the two ONNX files the app uses.
+
+Provenance script (not needed to use the app). To reproduce:
+  1. Copy the `mobile_sam` package and `weights/mobile_sam.pt` from
+     https://github.com/ChaoningZhang/MobileSAM into one folder.
+  2. pip install torch timm torchvision onnx
+  3. Run this script from that folder. It writes mobile_sam_encoder.onnx and
+     mobile_sam_decoder.onnx (exact bytes can differ between PyTorch versions;
+     the app pins the checksums of the files shipped in backend/models).
+"""
 import torch, warnings, sys
 warnings.filterwarnings("ignore")
 sys.path.insert(0, ".")
