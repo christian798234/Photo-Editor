@@ -10,3 +10,4 @@ frontend/dist/
 Thumbs.db
 # Real camera samples used for local testing are not committed
 samples/
+*.tsbuildinfo
