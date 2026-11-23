@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
-from . import PIPELINE_VERSION, __version__, dialogs
+from . import PIPELINE_VERSION, __version__, dialogs, masks
 from .config import MAX_INPUT_BYTES, AppPaths, default_data_dir
 from .export import ExportOptions, validate_folder
 from .formats import SUPPORTED_EXTENSIONS
@@ -48,7 +48,7 @@ class RegionReq(BaseModel):
 
 
 class AutoReq(BaseModel):
-    look: Literal["natural", "crisp"] = "natural"
+    look: Literal["natural", "crisp", "soft_background"] = "natural"
 
 
 class AutoAllReq(BaseModel):
@@ -56,9 +56,25 @@ class AutoAllReq(BaseModel):
     look: Literal["natural", "crisp"] = "natural"
 
 
+class ClickPoint(BaseModel):
+    x: float = Field(ge=0, le=1)        # normalised to the uncropped image
+    y: float = Field(ge=0, le=1)
+    bird: bool = True                    # False = "this is not the bird"
+
+
+class DetectReq(BaseModel):
+    points: Optional[list[ClickPoint]] = None
+    redetect: bool = False
+
+
+class CropSuggestReq(BaseModel):
+    aspect: Literal["original", "free", "3:2", "4:3", "1:1", "16:9"] = "original"
+    portrait: bool = False
+
+
 class PasteReq(BaseModel):
     photo_ids: list[str]
-    look: Literal["natural", "crisp"]
+    look: Literal["natural", "crisp", "soft_background"]
     strength: float = Field(ge=0, le=150)
     sliders: dict
 
@@ -72,6 +88,17 @@ class ExportReq(BaseModel):
     keep_gps: bool = False
 
 
+class HistoryEntry(BaseModel):
+    label: str = Field(max_length=120)
+    time: float
+    recipe: Recipe
+
+
+class History(BaseModel):
+    entries: list[HistoryEntry] = Field(max_length=200)
+    index: int = Field(ge=0)
+
+
 class RelocateConfirm(BaseModel):
     pending_id: str
 
@@ -82,13 +109,24 @@ class SettingsModel(BaseModel):
     jpeg_quality: int = Field(92, ge=50, le=100)
     long_edge: Optional[int] = Field(None, ge=256, le=20000)
     keep_gps: bool = False
+    subject_detection: Optional[bool] = None    # None = not asked yet
 
 
 def create_app(token: str, port: int, data_dir: Path | None = None,
                dev_origins: tuple[str, ...] = ()) -> FastAPI:
     paths = AppPaths(data_dir or default_data_dir()).ensure()
     store = Store(paths)
-    proc = Processor(store)
+
+    def load_settings() -> SettingsModel:
+        try:
+            return SettingsModel.model_validate_json(paths.settings_file.read_text("utf-8"))
+        except (OSError, ValidationError, ValueError):
+            return SettingsModel()
+
+    def subject_enabled() -> bool:
+        return bool(load_settings().subject_detection) and masks.status()["installed"]
+
+    proc = Processor(store, subject_enabled)
     jobs = JobManager()
     @asynccontextmanager
     async def lifespan(_app):
@@ -109,6 +147,13 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
         out["recipe"] = recipe.model_dump()
         out["summary"] = proc.summary(rec["id"], recipe) if recipe.auto_applied or recipe != Recipe() else ""
         out.pop("noise_model", None)
+        info, m = proc.mask(rec["id"])
+        out["mask"] = None if info is None else {
+            "status": info.get("status"), "message": info.get("message"), "accepted": bool(info.get("accepted")),
+            "usable": m is not None and (info.get("status") == "good" or bool(info.get("accepted"))),
+            "has_mask": m is not None, "birds": len([b for b in info.get("birds", []) if b.get("quality", {}).get("ok")]),
+            "detection": info.get("detection"), "seconds": info.get("seconds"),
+            "points": info.get("points", []), "source": info.get("source"), "shape": info.get("shape")}
         return out
 
     def _get(photo_id: str) -> dict:
@@ -135,7 +180,7 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
             "rawpy": rawpy.__version__, "libraw": ".".join(map(str, rawpy.libraw_version)),
             "processing": "CPU", "gpu_acceleration": "Not implemented (CPU-only processing)",
             "cpu_count": os.cpu_count(), "data_dir": str(paths.root),
-            "subject_masks": "Not installed (optional Milestone 3 feature)",
+            "subject_masks": "installed" if masks.status()["installed"] else "not installed",
             "native_dialogs": dialogs.available(),
         }
 
@@ -261,9 +306,15 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
         return _apply_relocation(photo_id, Path(item[1]))
 
     # ------------------------------------------------------------- recipes
+    def _check_mask(photo_id: str, recipe: Recipe) -> None:
+        if recipe.needs_mask and proc.usable_mask(photo_id) is None:
+            raise HTTPException(409, "Bird-aware processing and the Soft Background look need a "
+                                     "reliable bird selection, and this photo doesn't have one.")
+
     @app.put("/api/photos/{photo_id}/recipe")
     def put_recipe(photo_id: str, recipe: Recipe):
         _get(photo_id)
+        _check_mask(photo_id, recipe)
         store.put_recipe(photo_id, recipe)
         return {"ok": True, "summary": proc.summary(photo_id, recipe)}
 
@@ -290,6 +341,90 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
 
         return jobs.submit("auto", f"Auto editing {len(ids)} photo(s)", ids, work, pool="import").to_dict()
 
+    # ------------------------------------------------------------- history
+    @app.get("/api/photos/{photo_id}/history")
+    def get_history(photo_id: str):
+        _get(photo_id)
+        p = store.photo_dir(photo_id) / "history.json"
+        try:
+            h = History.model_validate_json(p.read_text("utf-8"))
+            return h.model_dump()
+        except (OSError, ValidationError, ValueError):
+            import time as _t
+            return {"entries": [{"label": "Imported", "time": _t.time(),
+                                 "recipe": store.get_recipe(photo_id).model_dump()}], "index": 0}
+
+    @app.put("/api/photos/{photo_id}/history")
+    def put_history(photo_id: str, h: History):
+        _get(photo_id)
+        if not h.entries or h.index >= len(h.entries):
+            raise HTTPException(422, "Invalid history")
+        atomic_write_text(store.photo_dir(photo_id) / "history.json", h.model_dump_json())
+        return {"ok": True}
+
+    # ------------------------------------------------------- subject masks
+    @app.get("/api/subject/status")
+    def subject_status():
+        st = masks.status()
+        st["enabled"] = load_settings().subject_detection
+        return st
+
+    @app.post("/api/photos/{photo_id}/detect")
+    def detect(photo_id: str, body: DetectReq):
+        rec = _get(photo_id)
+        if rec.get("decode_status") != "supported":
+            raise HTTPException(409, "This photo has not been decoded.")
+        if not load_settings().subject_detection:
+            raise HTTPException(409, "Bird detection is switched off. Turn it on in the Bird selection panel.")
+        try:
+            pts = [p.model_dump() for p in body.points] if body.points is not None else None
+            return proc.detect(photo_id, pts, body.redetect)
+        except ValueError as e:
+            raise HTTPException(409, str(e)) from None
+
+    @app.post("/api/photos/{photo_id}/mask/accept")
+    def accept_mask(photo_id: str):
+        _get(photo_id)
+        try:
+            return proc.accept_mask(photo_id)
+        except ValueError as e:
+            raise HTTPException(409, str(e)) from None
+
+    @app.delete("/api/photos/{photo_id}/mask")
+    def delete_mask(photo_id: str):
+        _get(photo_id)
+        proc.clear_mask(photo_id)
+        return {"ok": True}
+
+    @app.get("/api/photos/{photo_id}/mask.png")
+    def mask_png(photo_id: str):
+        _get(photo_id)
+        p = store.photo_dir(photo_id) / "mask.png"
+        if not p.exists():
+            raise HTTPException(404, "No selection")
+        return FileResponse(p, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/photos/{photo_id}/crop-suggestion")
+    def crop_suggestion(photo_id: str, body: CropSuggestReq):
+        rec = _get(photo_id)
+        m = proc.usable_mask(photo_id)
+        if m is None:
+            raise HTTPException(409, "Crop suggestions need a reliable bird selection.")
+        fw, fh = rec["full_size"]
+        ratios = {"3:2": 1.5, "4:3": 4 / 3, "1:1": 1.0, "16:9": 16 / 9,
+                  "original": max(fw, fh) / min(fw, fh), "free": None}
+        r = ratios[body.aspect]
+        if r is not None and body.portrait:
+            r = 1 / r
+        sug = masks.suggest_crop(m, r, (fw, fh))
+        if sug is None:
+            return {"crop": None, "message": "No tighter crop is suggested: the bird already fills the frame, "
+                                             "or this shape would cut it off."}
+        crop = {"aspect": body.aspect, "portrait": body.portrait, **{k: sug[k] for k in ("x", "y", "w", "h")}}
+        return {"crop": crop, "pixels": sug["pixels"],
+                "message": f"Suggested crop keeps the whole bird: {sug['pixels'][0]} x {sug['pixels'][1]} px. "
+                           "The direction the bird faces is not taken into account."}
+
     @app.post("/api/paste")
     def paste(body: PasteReq):
         from .recipe import Sliders
@@ -303,7 +438,10 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
             cur = store.get_recipe(pid)
             new = cur.model_copy(update={"look": body.look, "strength": body.strength,
                                          "sliders": sliders})
-            store.put_recipe(pid, Recipe.model_validate(new.model_dump()))
+            new = Recipe.model_validate(new.model_dump())
+            if new.look == "soft_background" and proc.usable_mask(pid) is None:
+                new = new.model_copy(update={"look": "natural"})
+            store.put_recipe(pid, new)
             done.append(pid)
         return {"ok": True, "photo_ids": done}
 
@@ -385,13 +523,12 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
     # ------------------------------------------------------------ settings
     @app.get("/api/settings")
     def get_settings():
-        try:
-            return SettingsModel.model_validate_json(paths.settings_file.read_text("utf-8")).model_dump()
-        except (OSError, ValidationError, ValueError):
-            return SettingsModel().model_dump()
+        return load_settings().model_dump()
 
     @app.put("/api/settings")
     def put_settings(s: SettingsModel):
+        if s.subject_detection is None:
+            s.subject_detection = load_settings().subject_detection
         atomic_write_text(paths.settings_file, s.model_dump_json(indent=1))
         return {"ok": True}
 

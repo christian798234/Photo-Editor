@@ -155,23 +155,25 @@ def _shrink_pyramid(ch: np.ndarray, sigma: np.ndarray, k: float, levels: int,
     return out
 
 
-def denoise(disp: np.ndarray, sigma_map: np.ndarray, strength: float) -> np.ndarray:
-    """strength: 0..1.5 (slider/100). sigma_map: expected luminance noise std
-    in display units at this render scale."""
-    if strength <= 0:
+def denoise(disp: np.ndarray, sigma_map: np.ndarray, strength) -> np.ndarray:
+    """strength: scalar or per-pixel map, 0..~2.5 (slider/100). sigma_map:
+    expected luminance noise std in display units at this render scale."""
+    s = strength if isinstance(strength, np.ndarray) else np.float32(strength)
+    if not isinstance(s, np.ndarray) and s <= 0:
         return disp
+    s = np.broadcast_to(np.asarray(s, np.float32), sigma_map.shape)
     r, g, b = disp[..., 0], disp[..., 1], disp[..., 2]
     y = 0.299 * r + 0.587 * g + 0.114 * b
     cb = b - y
     cr = r - y
-    k_l = 1.6 * strength
-    k_c = 2.0 + 2.5 * strength
+    t_l = (1.6 * s * sigma_map).astype(np.float32)
+    t_c = (np.where(s > 0, 2.0 + 2.5 * s, 0.0) * sigma_map).astype(np.float32)
     luma_gain = np.array([1.0, 0.9, 0.7, 0.5, 0.3], np.float32)
     chroma_gain = np.array([1.0, 1.0, 1.0, 0.9, 0.8, 0.6], np.float32)
-    y = _shrink_pyramid(y, sigma_map, k_l, 5, keep=0.18, level_gain=luma_gain)
+    y = _shrink_pyramid(y, t_l, 1.0, 5, keep=0.18, level_gain=luma_gain)
     # Chroma noise (in Cb/Cr difference units) is comparable to luma noise.
-    cb = _shrink_pyramid(cb, sigma_map, k_c, 6, keep=0.0, level_gain=chroma_gain)
-    cr = _shrink_pyramid(cr, sigma_map, k_c, 6, keep=0.0, level_gain=chroma_gain)
+    cb = _shrink_pyramid(cb, t_c, 1.0, 6, keep=0.0, level_gain=chroma_gain)
+    cr = _shrink_pyramid(cr, t_c, 1.0, 6, keep=0.0, level_gain=chroma_gain)
     return _ycc_to_rgb(y, cb, cr)
 
 
@@ -197,7 +199,10 @@ def _guided(I: np.ndarray, r: int, eps: float) -> np.ndarray:
 
 
 def sharpen_and_clarity(disp: np.ndarray, sigma_map: np.ndarray, detail: float,
-                        clarity: float, scale: float, nr_strength: float) -> np.ndarray:
+                        clarity: float, scale: float, nr_strength: float,
+                        weight: np.ndarray | None = None) -> np.ndarray:
+    """weight: optional per-pixel multiplier (1 on the bird, lower on the
+    background) when a subject mask is used."""
     if detail <= 0 and clarity <= 0:
         return disp
     r, g, b = disp[..., 0], disp[..., 1], disp[..., 2]
@@ -208,7 +213,8 @@ def sharpen_and_clarity(disp: np.ndarray, sigma_map: np.ndarray, detail: float,
         rad = max(2, int(round(24 * scale)))
         base = _guided(y, rad, 0.004)
         mid = 4.0 * y * (1.0 - y)                    # protect highlights/shadows
-        y_new = y_new + (clarity / 100.0) * 1.2 * mid * (y - base)
+        cl = (clarity / 100.0) * 1.2 * mid * (y - base)
+        y_new = y_new + (cl * weight if weight is not None else cl)
     if detail > 0:
         radius = max(0.5, 0.9 * scale)
         amount = (detail / 100.0) * 1.4 * min(1.0, 0.35 + 0.65 * min(scale, 1.0))
@@ -217,7 +223,8 @@ def sharpen_and_clarity(disp: np.ndarray, sigma_map: np.ndarray, detail: float,
         resid = sigma_map * (1.0 - 0.6 * min(nr_strength, 1.0))
         t = 1.5 * resid + 1e-4
         gate = np.clip((np.abs(det) - t) / t, 0.0, 1.0)
-        y_new = y_new + amount * gate * det
+        sh = amount * gate * det
+        y_new = y_new + (sh * weight if weight is not None else sh)
     # Halo control: limit overshoot past the local 3x3 range (bright halos
     # are limited more strictly than dark ones).
     k = np.ones((3, 3), np.uint8)
@@ -229,12 +236,16 @@ def sharpen_and_clarity(disp: np.ndarray, sigma_map: np.ndarray, detail: float,
 
 # --------------------------------------------------------------- render
 
-def render(lin: np.ndarray, eff: Effective, noise: NoiseModel, scale: float) -> np.ndarray:
+def render(lin: np.ndarray, eff: Effective, noise: NoiseModel, scale: float,
+           mask: np.ndarray | None = None) -> np.ndarray:
     """Render linear ProPhoto -> display-encoded sRGB float32 in [0, 1].
 
     ``scale`` = rendered pixels per full-resolution pixel (1.0 for 100% view
     and export; < 1 for previews). It adapts filter radii and noise levels.
+    ``mask`` (float32 0..1, same size as ``lin``; 1 = bird) is used only when
+    the recipe enables subject-aware processing.
     """
+    use_mask = eff.use_mask and mask is not None
     img = lin.astype(np.float32, copy=True)
     gains = wb_gains(eff).astype(np.float32)
     if not np.allclose(gains, 1.0):
@@ -258,34 +269,49 @@ def render(lin: np.ndarray, eff: Effective, noise: NoiseModel, scale: float) -> 
     del img
 
     nr = float(np.clip(eff.noise_reduction, 0, 150)) / 100.0
-    if nr > 0 or eff.detail > 0:
+    bg = float(np.clip(eff.background_nr, 0, 150)) / 100.0 if use_mask else 0.0
+    needs_sigma = nr > 0 or bg > 0 or eff.detail > 0
+    if needs_sigma:
         sig = noise.sigma(np.clip(y0, 0, None)).astype(np.float32) * noise.scale_factor(scale)
-        sigma_map = (lut.lookup(d0, lut.dout_dy) * sig).astype(np.float32)
-        sigma_map = np.minimum(sigma_map, 0.25)
-        if nr > 0:
-            disp = denoise(disp, sigma_map, nr)
-        if eff.detail > 0 or eff.clarity > 0:
-            disp = sharpen_and_clarity(disp, sigma_map, eff.detail, eff.clarity, scale, nr)
-    elif eff.clarity > 0:
-        disp = sharpen_and_clarity(disp, np.zeros(disp.shape[:2], np.float32), 0, eff.clarity, scale, 0)
+        sigma_map = np.minimum((lut.lookup(d0, lut.dout_dy) * sig).astype(np.float32), 0.25)
+    else:
+        sigma_map = np.zeros(disp.shape[:2], np.float32)
+    weight = None
+    if use_mask:
+        m = np.clip(mask.astype(np.float32), 0.0, 1.0)
+        # Bird: slightly gentler NR keeps feather texture. Background: the
+        # global amount plus the extra background amount.
+        strength = m * (0.8 * nr) + (1.0 - m) * (nr + 1.2 * bg)
+        if strength.max() > 0:
+            disp = denoise(disp, sigma_map, strength)
+        weight = m + 0.35 * (1.0 - m)          # little sharpening of background
+    elif nr > 0:
+        disp = denoise(disp, sigma_map, nr)
+    if eff.detail > 0 or eff.clarity > 0:
+        disp = sharpen_and_clarity(disp, sigma_map, eff.detail, eff.clarity, scale, nr, weight)
     return np.clip(disp, 0.0, 1.0)
 
 
 def render_region(lin_full: np.ndarray, eff: Effective, noise: NoiseModel,
-                  x: int, y: int, w: int, h: int, pad: int = 128) -> np.ndarray:
+                  x: int, y: int, w: int, h: int, pad: int = 128,
+                  mask_full: np.ndarray | None = None) -> np.ndarray:
     """Render a region of a full-resolution image with context padding."""
     H, W = lin_full.shape[:2]
     x0 = max(0, ((x - pad) // PYR_ALIGN) * PYR_ALIGN)
     y0 = max(0, ((y - pad) // PYR_ALIGN) * PYR_ALIGN)
     x1 = min(W, x + w + pad)
     y1 = min(H, y + h + pad)
-    out = render(lin_full[y0:y1, x0:x1], eff, noise, 1.0)
+    m = None
+    if mask_full is not None:
+        m = mask_full[y0:y1, x0:x1].astype(np.float32) * (1.0 / 255.0)
+    out = render(lin_full[y0:y1, x0:x1], eff, noise, 1.0, m)
     return out[y - y0:y - y0 + h, x - x0:x - x0 + w]
 
 
 def render_tiled(lin_full: np.ndarray, eff: Effective, noise: NoiseModel,
                  crop: tuple[int, int, int, int], tile: int, pad: int,
-                 out_dtype=np.uint16, cancel=None, progress=None) -> np.ndarray:
+                 out_dtype=np.uint16, cancel=None, progress=None,
+                 mask_full: np.ndarray | None = None) -> np.ndarray:
     """Render a crop of a full-resolution image tile by tile (bounded memory)."""
     cx, cy, cw, ch = crop
     maxv = 65535.0 if out_dtype == np.uint16 else 255.0
@@ -295,7 +321,7 @@ def render_tiled(lin_full: np.ndarray, eff: Effective, noise: NoiseModel,
         if cancel is not None and cancel():
             raise InterruptedError
         tw, th = min(tile, cw - tx), min(tile, ch - ty)
-        part = render_region(lin_full, eff, noise, cx + tx, cy + ty, tw, th, pad)
+        part = render_region(lin_full, eff, noise, cx + tx, cy + ty, tw, th, pad, mask_full)
         out[ty:ty + th, tx:tx + tw] = np.round(part * maxv).astype(out_dtype)
         if progress is not None:
             progress((i + 1) / len(tiles))

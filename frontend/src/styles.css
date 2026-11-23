@@ -158,3 +158,26 @@ input[type="number"] { width: 90px; }
 .toast { background: #30333a; border: 1px solid var(--line); padding: 8px 14px; border-radius: var(--radius); max-width: 640px; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
 .toast.error { background: #4a2626; border-color: #7a3a3a; }
 .drop-hint { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(47,111,224,.25); border: 3px dashed var(--accent); font-size: 20px; pointer-events: none; z-index: 40; }
+
+/* bird selection, history, reset buttons */
+.slider-value { display: inline-flex; align-items: center; gap: 4px; }
+.reset-btn { padding: 0 6px; line-height: 18px; font-size: 13px; background: transparent; border-color: transparent; color: var(--muted); }
+.reset-btn:hover:not(:disabled) { color: var(--text); border-color: var(--line); }
+.reset-btn:disabled { opacity: 0.25; }
+.bird-panel, .history-panel { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 10px; }
+.bird-panel h3, .history-panel h3 { margin: 0 0 6px; font-size: 14px; }
+.bird-panel.consent { background: #23303f; border: 1px solid #36506e; border-radius: var(--radius); padding: 10px; }
+.ok-text { color: var(--ok); }
+.small-btn { font-size: 12px; padding: 3px 8px; margin-top: 4px; }
+.mask-layer { position: absolute; inset: 0; }
+.mask-layer.clickable { cursor: crosshair; }
+.mask-layer canvas { position: absolute; pointer-events: none; }
+.sel-point { position: absolute; transform: translate(-50%, -50%); width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center;
+  font-weight: 700; font-size: 13px; color: #fff; border: 2px solid #fff; pointer-events: none; }
+.sel-point.pos { background: #1d9a4a; } .sel-point.neg { background: #c0392b; }
+.history-list { list-style: none; padding: 0; margin: 0; max-height: 240px; overflow-y: auto; }
+.history-item { width: 100%; display: flex; justify-content: space-between; gap: 8px; text-align: left; background: transparent;
+  border: 1px solid transparent; padding: 4px 8px; font-size: 13px; white-space: normal; }
+.history-item.current { border-color: var(--accent); background: #2b3446; }
+.history-item.undone { color: #8d9097; text-decoration: line-through; }
+.h-time { color: var(--muted); font-size: 11px; white-space: nowrap; }

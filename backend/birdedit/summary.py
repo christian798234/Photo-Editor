@@ -53,7 +53,13 @@ def summarize(recipe: Recipe, facts: dict | None = None) -> str:
             level = "strong" if e.noise_reduction >= 50 else "moderate"
         else:
             level = "moderate" if e.noise_reduction >= 35 else "light"
-        parts.append(f"applied {level} noise reduction across the whole image")
+        if e.use_mask:
+            extra = "much stronger" if e.background_nr >= 50 else "stronger"
+            parts.append(f"applied {level} noise reduction to the bird and {extra} noise reduction to the background")
+        else:
+            parts.append(f"applied {level} noise reduction across the whole image")
+    elif e.use_mask and e.background_nr >= 5:
+        parts.append("reduced noise in the background only")
     if e.detail >= 5:
         parts.append("applied restrained sharpening" if e.detail < 50 else "applied extra sharpening")
     if e.clarity >= 5:
@@ -68,6 +74,9 @@ def summarize(recipe: Recipe, facts: dict | None = None) -> str:
         text += "."
     if recipe.crop is not None:
         text += " Cropped."
+    if e.use_mask:
+        text += (" Bird selected with the local detection model" +
+                 (" (exposure measured on the bird)." if facts.get("metering") == "bird" else "."))
     clipped = facts.get("clipped_fraction", 0.0)
     if clipped >= 0.002:
         text += (f" About {clipped * 100:.1f}% of the photo was overexposed in camera; "

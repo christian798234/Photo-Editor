@@ -13,7 +13,7 @@ interface Props {
 
 export function ExportDialog({ photos, selected, currentId, jobs, onClose, onStarted }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
-  const [s, setS] = useState<Settings>({ export_folder: "", export_format: "jpeg", jpeg_quality: 92, long_edge: null, keep_gps: false });
+  const [s, setS] = useState<Settings>({ export_folder: "", export_format: "jpeg", jpeg_quality: 92, long_edge: null, keep_gps: false, subject_detection: null });
   const [which, setWhich] = useState<"current" | "selected" | "edited" | "all">(selected.size > 1 ? "selected" : "current");
   const [resize, setResize] = useState(false);
   const [error, setError] = useState("");

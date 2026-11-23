@@ -55,6 +55,14 @@ class Crop(BaseModel):
         return self
 
 
+class Subject(BaseModel):
+    """Bird-aware processing. Only valid when the photo has a usable mask;
+    the server rejects recipes that ask for it otherwise."""
+    model_config = ConfigDict(extra="forbid")
+    use_mask: bool = False
+    background_nr: float = Field(0.0, ge=0, le=100)   # extra noise reduction outside the bird
+
+
 class Recipe(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_version: int = 1
@@ -63,16 +71,13 @@ class Recipe(BaseModel):
     strength: float = Field(100.0, ge=0, le=150)           # percent
     sliders: Sliders = Field(default_factory=Sliders)
     internal: Internal = Field(default_factory=Internal)
+    subject: Subject = Field(default_factory=Subject)
     crop: Optional[Crop] = None
     auto_applied: bool = False
 
-    @model_validator(mode="after")
-    def _no_mask_look(self) -> "Recipe":
-        # Soft Background needs a real subject mask; none exists in this build.
-        if self.look == "soft_background":
-            raise ValueError("The Soft Background look requires a subject mask, "
-                             "which is not available.")
-        return self
+    @property
+    def needs_mask(self) -> bool:
+        return self.look == "soft_background" or self.subject.use_mask
 
 
 def baseline_recipe() -> Recipe:
@@ -80,7 +85,7 @@ def baseline_recipe() -> Recipe:
     return Recipe()
 
 
-USER_FACING_KEYS = ("look", "strength", "sliders")
+USER_FACING_KEYS = ("look", "strength", "sliders")  # subject settings are per photo (mask-dependent)
 
 
 @dataclass(frozen=True)
@@ -97,10 +102,12 @@ class Effective:
     noise_reduction: float
     detail: float
     clarity: float
+    use_mask: bool = False
+    background_nr: float = 0.0
 
     @property
     def is_identity(self) -> bool:
-        return all(abs(v) < 1e-9 for v in self.__dict__.values())
+        return all(abs(float(v)) < 1e-9 for v in self.__dict__.values())
 
 
 def effective(recipe: Recipe) -> Effective:
@@ -112,4 +119,6 @@ def effective(recipe: Recipe) -> Effective:
         contrast=it.contrast * s, black=it.black * s, color=sl.color * s,
         noise_reduction=sl.noise_reduction * s, detail=sl.detail * s,
         clarity=it.clarity * s,
+        use_mask=recipe.subject.use_mask,
+        background_nr=recipe.subject.background_nr * s if recipe.subject.use_mask else 0.0,
     )

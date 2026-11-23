@@ -27,6 +27,11 @@ export interface Crop {
   h: number;
 }
 
+export interface Subject {
+  use_mask: boolean;
+  background_nr: number;
+}
+
 export interface Recipe {
   schema_version: number;
   pipeline_version: string;
@@ -34,6 +39,7 @@ export interface Recipe {
   strength: number;
   sliders: Sliders;
   internal: Internal;
+  subject: Subject;
   crop: Crop | null;
   auto_applied: boolean;
 }
@@ -80,7 +86,32 @@ export interface Photo {
   full_size?: [number, number];
   recipe: Recipe;
   summary: string;
+  mask: MaskInfo | null;
 }
+
+export interface MaskInfo {
+  status: "good" | "uncertain" | "none";
+  message: string;
+  accepted: boolean;
+  usable: boolean;
+  has_mask: boolean;
+  birds: number;
+  detection: string;
+  seconds: number;
+  points: [number, number, number][];
+  source: string;
+  shape: [number, number] | null;
+}
+
+export interface SubjectStatus {
+  installed: boolean;
+  enabled: boolean | null;
+  runtime: string;
+  models: { key: string; name: string; license: string; size_mb: number | null; intact: boolean }[];
+}
+
+export interface HistoryEntry { label: string; time: number; recipe: Recipe }
+export interface History { entries: HistoryEntry[]; index: number }
 
 export interface JobResult {
   item: string;
@@ -108,6 +139,7 @@ export interface Settings {
   jpeg_quality: number;
   long_edge: number | null;
   keep_gps: boolean;
+  subject_detection: boolean | null;
 }
 
 export const BASELINE: Recipe = {
@@ -117,6 +149,7 @@ export const BASELINE: Recipe = {
   strength: 100,
   sliders: { exposure: 0, warmth: 0, highlights: 0, shadows: 0, color: 0, noise_reduction: 0, detail: 0 },
   internal: { tint: 0, contrast: 0, black: 0, clarity: 0 },
+  subject: { use_mask: false, background_nr: 0 },
   crop: null,
   auto_applied: false,
 };

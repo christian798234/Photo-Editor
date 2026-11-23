@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "./api";
 import { Adjustments } from "./components/Adjustments";
+import { BirdPanel, type SelectTool } from "./components/BirdPanel";
+import { HistoryPanel } from "./components/HistoryPanel";
+import { describeChange } from "./history";
 import { ExportDialog } from "./components/ExportDialog";
 import { Filmstrip } from "./components/Filmstrip";
 import { InfoPanel } from "./components/InfoPanel";
 import { JobsBar } from "./components/JobsBar";
 import { Viewer, type Compare, type Zoom } from "./components/Viewer";
-import type { Crop, Job, Photo, Recipe } from "./types";
+import type { Crop, History, Job, Photo, Recipe, SubjectStatus } from "./types";
 import { BASELINE } from "./types";
 
-interface History { stack: Recipe[]; index: number }
 type Clip = Pick<Recipe, "look" | "strength" | "sliders">;
 
 const same = (a: Recipe, b: Recipe) => JSON.stringify(a) === JSON.stringify(b);
@@ -30,6 +32,11 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [nativeDialogs, setNativeDialogs] = useState(true);
+  const [subject, setSubject] = useState<SubjectStatus | null>(null);
+  const [showMask, setShowMask] = useState(false);
+  const [tool, setTool] = useState<SelectTool>("off");
+  const [maskVersion, setMaskVersion] = useState("0");
+  const [historyView, setHistoryView] = useState<History | null>(null);
 
   const histories = useRef(new Map<string, History>());
   const commitTimer = useRef<number | null>(null);
@@ -59,9 +66,11 @@ export function App() {
       const cur = list.find((p) => p.id === currentRef.current);
       if (cur && !pendingCommit.current) {
         const h = histories.current.get(cur.id);
-        if (h && !same(h.stack[h.index], cur.recipe)) {
-          h.stack = [...h.stack.slice(0, h.index + 1), cur.recipe];
-          h.index = h.stack.length - 1;
+        if (h && !same(h.entries[h.index].recipe, cur.recipe)) {
+          h.entries = [...h.entries.slice(0, h.index + 1), { label: "Auto Edit All", time: Date.now() / 1000, recipe: cur.recipe }];
+          h.index = h.entries.length - 1;
+          setHistoryView({ ...h });
+          api.saveHistory(cur.id, h).catch(() => {});
           setRecipe(cur.recipe);
           setSummary(cur.summary);
         }
@@ -73,6 +82,8 @@ export function App() {
 
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => { api.system().then((s) => setNativeDialogs(!!s.native_dialogs)).catch(() => {}); }, []);
+  const loadSubject = useCallback(() => api.subjectStatus().then(setSubject).catch(() => {}), []);
+  useEffect(() => { loadSubject(); }, [loadSubject]);
 
   // Job polling while anything is running.
   const startPolling = useCallback(() => { polling.current = true; }, []);
@@ -98,13 +109,26 @@ export function App() {
   // Switching photos: load its recipe and history.
   useEffect(() => {
     setCropDraft(null);
-    if (!photo) return;
-    let h = histories.current.get(photo.id);
-    if (!h) {
-      h = { stack: [photo.recipe], index: 0 };
-      histories.current.set(photo.id, h);
+    setTool("off");
+    if (!photo) { setHistoryView(null); return; }
+    const id = photo.id;
+    const known = histories.current.get(id);
+    if (known) {
+      setRecipe(known.entries[known.index].recipe);
+      setHistoryView({ ...known });
+    } else {
+      setRecipe(photo.recipe);
+      setHistoryView(null);
+      api.history(id).then((h) => {
+        // The saved history must end at the recipe that is actually stored.
+        if (!same(h.entries[h.index].recipe, photo.recipe)) {
+          h.entries = [...h.entries.slice(0, h.index + 1), { label: "Edit", time: Date.now() / 1000, recipe: photo.recipe }];
+          h.index = h.entries.length - 1;
+        }
+        histories.current.set(id, h);
+        if (currentRef.current === id) { setHistoryView({ ...h }); setRecipe(h.entries[h.index].recipe); }
+      }).catch(fail);
     }
-    setRecipe(h.stack[h.index]);
     setSummary(photo.summary);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photo?.id]);
@@ -122,14 +146,20 @@ export function App() {
     }
   }, [fail]);
 
-  const commit = useCallback((id: string, r: Recipe) => {
-    const h = histories.current.get(id) ?? { stack: [], index: -1 };
-    if (h.index >= 0 && same(h.stack[h.index], r)) { pendingCommit.current = false; return; }
-    h.stack = [...h.stack.slice(0, h.index + 1), r].slice(-100);
-    h.index = h.stack.length - 1;
+  const persistHistory = useCallback((id: string, h: History) => {
     histories.current.set(id, h);
+    if (currentRef.current === id) setHistoryView({ ...h });
+    api.saveHistory(id, h).catch(() => {});
+  }, []);
+
+  const commit = useCallback((id: string, r: Recipe, label?: string) => {
+    const h = histories.current.get(id) ?? { entries: [{ label: "Imported", time: Date.now() / 1000, recipe: BASELINE }], index: 0 };
+    const prev = h.entries[h.index].recipe;
+    if (same(prev, r)) { pendingCommit.current = false; return; }
+    const entries = [...h.entries.slice(0, h.index + 1), { label: label ?? describeChange(prev, r), time: Date.now() / 1000, recipe: r }].slice(-200);
+    persistHistory(id, { entries, index: entries.length - 1 });
     save(id, r);
-  }, [save]);
+  }, [save, persistHistory]);
 
   const onChange = useCallback((r: Recipe) => {
     if (!currentId) return;
@@ -137,36 +167,49 @@ export function App() {
     pendingCommit.current = true;
     if (commitTimer.current) window.clearTimeout(commitTimer.current);
     const id = currentId;
-    commitTimer.current = window.setTimeout(() => commit(id, r), 450);
+    commitTimer.current = window.setTimeout(() => { commitTimer.current = null; commit(id, r); }, 600);
   }, [currentId, commit]);
 
-  const setNow = useCallback((r: Recipe) => {
+  const setNow = useCallback((r: Recipe, label?: string) => {
     if (!currentId) return;
-    if (commitTimer.current) window.clearTimeout(commitTimer.current);
+    if (commitTimer.current) { window.clearTimeout(commitTimer.current); commitTimer.current = null; }
     setRecipe(r);
     pendingCommit.current = true;
-    commit(currentId, r);
+    commit(currentId, r, label);
   }, [currentId, commit]);
 
-  const undoRedo = useCallback((dir: -1 | 1) => {
+  const jumpTo = useCallback((index: number) => {
     if (!currentId) return;
-    if (commitTimer.current) { window.clearTimeout(commitTimer.current); commit(currentId, recipe); }
+    if (commitTimer.current) { window.clearTimeout(commitTimer.current); commitTimer.current = null; commit(currentId, recipe); }
     const h = histories.current.get(currentId);
-    if (!h) return;
-    const ni = h.index + dir;
-    if (ni < 0 || ni >= h.stack.length) return;
-    h.index = ni;
-    setRecipe(h.stack[ni]);
+    if (!h || index < 0 || index >= h.entries.length || index === h.index) return;
+    const target = h.entries[index].recipe;
+    if (target.subject?.use_mask || target.look === "soft_background") {
+      if (!photos.find((p) => p.id === currentId)?.mask?.usable) {
+        toast("That step used a bird selection that no longer exists. Detect the bird again first.", "error");
+        return;
+      }
+    }
+    persistHistory(currentId, { ...h, index });
+    setRecipe(target);
     pendingCommit.current = true;
-    save(currentId, h.stack[ni]);
-  }, [currentId, recipe, commit, save]);
+    save(currentId, target);
+  }, [currentId, recipe, commit, save, persistHistory, photos, toast]);
 
-  const autoEdit = useCallback(async (look: "natural" | "crisp" = "natural") => {
+  const undoRedo = useCallback((dir: -1 | 1) => {
+    const h = currentId ? histories.current.get(currentId) : undefined;
+    if (h) jumpTo(h.index + dir);
+  }, [currentId, jumpTo]);
+
+  const autoEdit = useCallback(async (look: "natural" | "crisp" | "soft_background" = "natural") => {
     if (!photo) return;
     setBusy(true);
     try {
       const res = await api.auto(photo.id, look);
-      setNow({ ...res.recipe });
+      const names = { natural: "Natural", crisp: "Crisp Detail", soft_background: "Soft Background" };
+      setNow({ ...res.recipe }, `Auto Edit (${names[look]})`);
+      setMaskVersion(String(Date.now()));
+      refresh();
       setSummary(res.summary);
       setCompare((c) => (c === "before" ? "slider" : c));
     } catch (e) {
@@ -174,7 +217,46 @@ export function App() {
     } finally {
       setBusy(false);
     }
-  }, [photo, setNow, fail]);
+  }, [photo, setNow, fail, refresh]);
+
+  /* ------------------------------------------------------ bird selection */
+  const enableSubject = useCallback(async (on: boolean) => {
+    try {
+      const st = await api.settings();
+      await api.saveSettings({ ...st, subject_detection: on });
+      await loadSubject();
+      if (on) toast("Bird detection is on. Auto Edit will now look for the bird.");
+    } catch (e) { fail(e); }
+  }, [loadSubject, toast, fail]);
+
+  const afterMaskChange = useCallback(async () => {
+    setMaskVersion(String(Date.now()));
+    await refresh();
+  }, [refresh]);
+
+  const detect = useCallback(async () => {
+    if (!photo) return;
+    setBusy(true);
+    try {
+      const r = await api.detect(photo.id, undefined, true);
+      toast(r.message, r.status === "good" ? "info" : "error");
+      setShowMask(true);
+      await afterMaskChange();
+    } catch (e) { fail(e); } finally { setBusy(false); }
+  }, [photo, toast, fail, afterMaskChange]);
+
+  const selectClick = useCallback(async (x: number, y: number) => {
+    if (!photo || tool === "off") return;
+    const shape = photo.mask?.shape;
+    const prev = (photo.mask?.points ?? []).map(([px, py, lab]) =>
+      ({ x: shape ? px / shape[1] : 0, y: shape ? py / shape[0] : 0, bird: !!lab }));
+    setBusy(true);
+    try {
+      await api.detect(photo.id, [...prev, { x, y, bird: tool === "add" }]);
+      setShowMask(true);
+      await afterMaskChange();
+    } catch (e) { fail(e); } finally { setBusy(false); }
+  }, [photo, tool, fail, afterMaskChange]);
 
   const autoAll = useCallback(async () => {
     const ids = photos.filter((p) => p.decode_status === "supported").map((p) => p.id);
@@ -291,7 +373,7 @@ export function App() {
     const targets = selected.size > 1 ? Array.from(selected) : currentId ? [currentId] : [];
     try {
       await api.paste(targets, clip);
-      if (currentId && targets.includes(currentId)) setNow({ ...recipe, ...clip, sliders: { ...clip.sliders } });
+      if (currentId && targets.includes(currentId)) setNow({ ...recipe, ...clip, sliders: { ...clip.sliders } }, "Pasted settings");
       await refresh();
       toast(`Pasted adjustments to ${targets.length} photo${targets.length === 1 ? "" : "s"}.`);
     } catch (e) {
@@ -312,9 +394,10 @@ export function App() {
     return () => window.removeEventListener("keydown", key);
   }, [undoRedo]);
 
-  const h = currentId ? histories.current.get(currentId) : undefined;
+  const h = historyView;
   const canUndo = !!h && h.index > 0;
-  const canRedo = !!h && h.index < h.stack.length - 1;
+  const canRedo = !!h && h.index < h.entries.length - 1;
+  const lastAuto = h ? [...h.entries.slice(0, h.index + 1)].reverse().find((e) => e.label.startsWith("Auto Edit"))?.recipe ?? null : null;
   const ready = photo?.decode_status === "supported";
   const anyEdited = photos.some((p) => p.recipe.auto_applied);
   const step = !photos.length ? 1 : !anyEdited ? 2 : 3;
@@ -361,7 +444,8 @@ export function App() {
             <div className="seg">
               <button onClick={() => undoRedo(-1)} disabled={!canUndo} title="Undo (Ctrl+Z)">Undo</button>
               <button onClick={() => undoRedo(1)} disabled={!canRedo} title="Redo (Ctrl+Y)">Redo</button>
-              <button onClick={() => setNow({ ...BASELINE })} disabled={!ready} title="Back to the unedited baseline rendering">Reset</button>
+              <button onClick={() => setNow({ ...BASELINE }, "Revert to original")} disabled={!ready}
+                title="Back to the unedited baseline rendering (can be undone)">Revert to original</button>
             </div>
             <div className="seg">
               <button onClick={copySettings} disabled={!ready}>Copy settings</button>
@@ -372,7 +456,9 @@ export function App() {
             </div>
           </div>
           <Viewer photo={photo} recipe={recipe} compare={compare} zoom={zoom} setZoom={setZoom}
-            cropDraft={cropDraft} setCropDraft={setCropDraft} />
+            cropDraft={cropDraft} setCropDraft={setCropDraft}
+            showMask={showMask && !!photo?.mask?.has_mask} selecting={tool !== "off"} maskVersion={maskVersion}
+            maskShape={photo?.mask?.shape ?? null} onSelectClick={selectClick} />
           {summary && ready && <p className="summary" aria-live="polite">{summary}</p>}
           <Filmstrip photos={photos} currentId={currentId} selected={selected} onSelect={onSelect} onRemove={removePhoto} />
         </section>
@@ -382,10 +468,30 @@ export function App() {
             <>
               <InfoPanel photo={photo} onLocate={locate} onRetry={() => api.reprocess(photo.id).then(() => { startPolling(); refresh(); }).catch(fail)} />
               <Adjustments photo={photo} recipe={recipe} onChange={onChange} onLook={(l) => autoEdit(l)} busy={busy}
+                autoRecipe={lastAuto} maskUsable={!!photo.mask?.usable}
+                onSuggestCrop={async (aspect, portrait) => {
+                  try {
+                    const r = await api.cropSuggestion(photo.id, aspect, portrait);
+                    if (r.crop) setCropDraft(r.crop);
+                    toast(r.message);
+                  } catch (e) { fail(e); }
+                }}
                 cropDraft={cropDraft} setCropDraft={(c) => {
                   setCropDraft(c);
-                  if (c) { setZoom("fit"); }
+                  if (c) { setZoom("fit"); setTool("off"); }
                 }} />
+              <BirdPanel photo={photo} recipe={recipe} status={subject} busy={busy} showMask={showMask} setShowMask={setShowMask}
+                tool={tool} setTool={(t) => { setTool(t); if (t !== "off") { setZoom("fit"); setCropDraft(null); } }}
+                onEnable={enableSubject} onDetect={detect}
+                onAccept={() => api.acceptMask(photo.id).then(afterMaskChange).catch(fail)}
+                onClear={() => api.clearMask(photo.id).then(async () => {
+                  setShowMask(false); setTool("off");
+                  const r = await api.photo(photo.id);
+                  if (!same(r.recipe, recipe)) setNow(r.recipe, "Bird selection cleared");
+                  await afterMaskChange();
+                }).catch(fail)}
+                onChange={onChange} />
+              <HistoryPanel history={historyView} onJump={jumpTo} />
             </>
           ) : (
             <p className="muted pad">No photo selected.</p>

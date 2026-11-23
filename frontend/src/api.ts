@@ -1,4 +1,4 @@
-import type { Job, Photo, Recipe, Settings } from "./types";
+import type { Crop, History, Job, MaskInfo, Photo, Recipe, Settings, SubjectStatus } from "./types";
 
 function readToken(): string {
   const meta = document.querySelector('meta[name="birdedit-token"]')?.getAttribute("content") ?? "";
@@ -67,10 +67,21 @@ export const api = {
     json(`/api/photos/${id}/relocate/confirm`, { method: "POST", body: JSON.stringify({ pending_id }) }),
   saveRecipe: (id: string, recipe: Recipe) =>
     json<{ summary: string }>(`/api/photos/${id}/recipe`, { method: "PUT", body: JSON.stringify(recipe) }),
-  auto: (id: string, look: "natural" | "crisp") =>
+  auto: (id: string, look: "natural" | "crisp" | "soft_background") =>
     json<{ recipe: Recipe; summary: string }>(`/api/photos/${id}/auto`, { method: "POST", body: JSON.stringify({ look }) }),
   autoAll: (ids: string[], look: "natural" | "crisp") =>
     json<Job>("/api/auto-all", { method: "POST", body: JSON.stringify({ photo_ids: ids, look }) }),
+  subjectStatus: () => json<SubjectStatus>("/api/subject/status"),
+  detect: (id: string, points?: { x: number; y: number; bird: boolean }[], redetect = false) =>
+    json<MaskInfo & { birds: unknown[] }>(`/api/photos/${id}/detect`, { method: "POST", body: JSON.stringify({ points: points ?? null, redetect }) }),
+  acceptMask: (id: string) => json(`/api/photos/${id}/mask/accept`, { method: "POST" }),
+  clearMask: (id: string) => json(`/api/photos/${id}/mask`, { method: "DELETE" }),
+  maskBlob: async (id: string) => (await request(`/api/photos/${id}/mask.png?v=${Date.now()}`)).blob(),
+  cropSuggestion: (id: string, aspect: string, portrait: boolean) =>
+    json<{ crop: Crop | null; message: string; pixels?: [number, number] }>(`/api/photos/${id}/crop-suggestion`, {
+      method: "POST", body: JSON.stringify({ aspect, portrait }) }),
+  history: (id: string) => json<History>(`/api/photos/${id}/history`),
+  saveHistory: (id: string, h: History) => json(`/api/photos/${id}/history`, { method: "PUT", body: JSON.stringify(h) }),
   paste: (ids: string[], s: Pick<Recipe, "look" | "strength" | "sliders">) =>
     json("/api/paste", { method: "POST", body: JSON.stringify({ photo_ids: ids, ...s }) }),
   render: async (id: string, body: object, signal: AbortSignal) => {

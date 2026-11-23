@@ -14,7 +14,7 @@ import numpy as np
 from . import color
 from .noise import NoiseModel
 from .pipeline import build_tone_lut, tone_display
-from .recipe import Effective, Internal, Recipe, Sliders, effective
+from .recipe import Effective, Internal, Recipe, Sliders, Subject, effective
 
 TARGET_KEY = 0.15          # linear centre-weighted log-average target
 
@@ -48,19 +48,35 @@ def _eff(**kw) -> Effective:
     return Effective(**base)
 
 
+BACKGROUND_NR = {"natural": 25.0, "crisp": 15.0, "soft_background": 60.0}
+
+
 def analyze_and_build(lin_preview: np.ndarray, noise: NoiseModel, look: str = "natural",
-                      noise_render_scale: float = 1.0) -> tuple[Recipe, dict]:
-    """Return (auto recipe, analysis facts used by the summary)."""
-    if look not in ("natural", "crisp"):
+                      noise_render_scale: float = 1.0,
+                      mask: np.ndarray | None = None) -> tuple[Recipe, dict]:
+    """Return (auto recipe, analysis facts used by the summary).
+
+    ``mask``: a validated bird mask (uint8, preview size) or None. With a mask,
+    exposure is metered on the bird and background noise reduction is raised.
+    """
+    if look not in ("natural", "crisp", "soft_background"):
         look = "natural"
+    if look == "soft_background" and mask is None:
+        raise ValueError("The Soft Background look needs a reliable bird selection.")
     crisp = look == "crisp"
-    facts: dict = {"look": look}
+    facts: dict = {"look": look, "masked": mask is not None}
 
     clipped = float(np.mean(color.channel_max(lin_preview) >= 0.995))
     facts["clipped_fraction"] = clipped
     s = _small(lin_preview)
     h, w = s.shape[:2]
-    wts = _center_weights(h, w)
+    if mask is not None:
+        m_small = cv2.resize(mask, (w, h), interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
+        wts = 0.15 + 0.85 * m_small            # meter mostly on the bird
+        facts["metering"] = "bird"
+    else:
+        wts = _center_weights(h, w)
+        facts["metering"] = "centre-weighted"
     y = np.maximum(color.luminance(s), 1e-5)
 
     # --- white balance refinement (conservative, damped) -----------------
@@ -168,6 +184,8 @@ def analyze_and_build(lin_preview: np.ndarray, noise: NoiseModel, look: str = "n
                         noise_reduction=round(nr), detail=round(detail)),
         internal=Internal(tint=round(tint), contrast=round(contrast, 1), black=black,
                           clarity=clarity),
+        subject=Subject(use_mask=mask is not None,
+                        background_nr=BACKGROUND_NR[look] if mask is not None else 0.0),
         auto_applied=True,
     )
     return recipe, facts

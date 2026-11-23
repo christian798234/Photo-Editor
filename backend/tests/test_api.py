@@ -197,7 +197,9 @@ def test_recipe_validation_via_api(client, tmp_path):
     upload(client, [make_jpeg(tmp_path / "a.jpg", gradient_image())])
     pid = by_name(client)["a.jpg"]["id"]
     assert client.put(f"/api/photos/{pid}/recipe", json={"sliders": {"exposure": 99}}).status_code == 422
-    assert client.put(f"/api/photos/{pid}/recipe", json={"look": "soft_background"}).status_code == 422
+    # No bird selection -> mask-dependent settings are refused.
+    assert client.put(f"/api/photos/{pid}/recipe", json={"look": "soft_background"}).status_code == 409
+    assert client.put(f"/api/photos/{pid}/recipe", json={"subject": {"use_mask": True}}).status_code == 409
     assert client.get("/api/photos/../../etc/passwd").status_code == 404
 
 
@@ -224,3 +226,17 @@ def test_security_checks(data_dir):
     r = c.get("/api/photos", headers={"X-BirdEdit-Token": "secret"})
     assert "access-control-allow-origin" not in r.headers
     app.state.jobs.shutdown()
+
+
+def test_edit_history_persists(client, tmp_path):
+    upload(client, [make_jpeg(tmp_path / "h.jpg", gradient_image())])
+    pid = by_name(client)["h.jpg"]["id"]
+    h = client.get(f"/api/photos/{pid}/history").json()
+    assert h["index"] == 0 and h["entries"][0]["label"] == "Imported"
+    r2 = dict(h["entries"][0]["recipe"])
+    r2["sliders"] = {**r2["sliders"], "exposure": 0.5}
+    h2 = {"entries": h["entries"] + [{"label": "Exposure +0.50 EV", "time": 1.0, "recipe": r2}], "index": 1}
+    assert client.put(f"/api/photos/{pid}/history", json=h2).status_code == 200
+    back = client.get(f"/api/photos/{pid}/history").json()
+    assert back["index"] == 1 and back["entries"][1]["label"] == "Exposure +0.50 EV"
+    assert client.put(f"/api/photos/{pid}/history", json={"entries": [], "index": 0}).status_code == 422

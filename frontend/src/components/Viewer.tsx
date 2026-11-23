@@ -4,6 +4,7 @@ import type { Crop, Photo, Recipe } from "../types";
 import { BASELINE } from "../types";
 import { useElementSize, useRenderedImage } from "../useRender";
 import { CropOverlay } from "./CropOverlay";
+import { MaskLayer } from "./MaskLayer";
 
 export type Compare = "after" | "before" | "slider" | "side";
 export type Zoom = "fit" | "100";
@@ -16,6 +17,11 @@ interface Props {
   setZoom: (z: Zoom) => void;
   cropDraft: Crop | null;
   setCropDraft: (c: Crop) => void;
+  showMask: boolean;
+  selecting: boolean;
+  maskVersion: string;
+  maskShape: [number, number] | null;
+  onSelectClick: (x: number, y: number) => void;
 }
 
 const DPR = () => window.devicePixelRatio || 1;
@@ -127,7 +133,8 @@ function ZoomPane(props: { photo: Photo; recipe: Recipe; before: boolean; pan: {
 
 /* --------------------------------------------------------------- viewer */
 
-export function Viewer({ photo, recipe, compare, zoom, setZoom, cropDraft, setCropDraft }: Props) {
+export function Viewer({ photo, recipe, compare, zoom, setZoom, cropDraft, setCropDraft, showMask, selecting,
+  maskVersion, maskShape, onSelectClick }: Props) {
   const [boxRef, box] = useElementSize<HTMLDivElement>();
   const [split, setSplit] = useState(0.5);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -186,6 +193,17 @@ export function Viewer({ photo, recipe, compare, zoom, setZoom, cropDraft, setCr
       <div className="viewer" ref={boxRef}>
         <FitPane photo={photo} recipe={{ ...recipe, crop: null }} before={false} ignoreCrop />
         <CropOverlay box={box} fullSize={photo.full_size!} crop={cropDraft} onChange={setCropDraft} />
+      </div>
+    );
+  }
+
+  if ((showMask || selecting) && ready && zoom === "fit") {
+    return (
+      <div className="viewer" ref={boxRef}>
+        <FitPane photo={photo} recipe={{ ...recipe, crop: null }} before={false} ignoreCrop />
+        <MaskLayer photoId={photo.id} version={maskVersion} box={box} fullSize={photo.full_size!} show={showMask || selecting}
+          points={photo.mask?.points ?? []} maskShape={maskShape} clickable={selecting} onClick={onSelectClick} />
+        {selecting && <span className="zoom-hint">Click on the photo to refine the bird selection</span>}
       </div>
     );
   }

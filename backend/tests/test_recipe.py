@@ -19,9 +19,12 @@ def test_validation_limits():
         Recipe.model_validate({"sliders": {"exposure": 1, "unknown_key": 3}})
 
 
-def test_soft_background_requires_mask():
+def test_mask_dependent_recipes_are_flagged():
+    assert Recipe(look="soft_background").needs_mask
+    assert Recipe(subject={"use_mask": True}).needs_mask
+    assert not Recipe().needs_mask
     with pytest.raises(ValidationError):
-        Recipe(look="soft_background")
+        Recipe(subject={"background_nr": 500})
 
 
 def test_strength_scales_everything():
