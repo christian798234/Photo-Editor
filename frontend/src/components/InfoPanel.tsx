@@ -6,7 +6,8 @@ function Row({ k, v }: { k: string; v?: string | number | null }) {
   return (<><dt>{k}</dt><dd>{v}</dd></>);
 }
 
-export function InfoPanel({ photo, onLocate, onRetry }: { photo: Photo; onLocate: () => void; onRetry: () => void }) {
+export function InfoPanel({ photo, onLocate, onRetry, dngConverter, onUseConverter }: {
+  photo: Photo; onLocate: () => void; onRetry: () => void; dngConverter: boolean; onUseConverter: () => void }) {
   const md = photo.metadata;
   const cam = md?.camera;
   const decodeText: Record<Photo["decode_status"], string> = {
@@ -55,6 +56,12 @@ export function InfoPanel({ photo, onLocate, onRetry }: { photo: Photo; onLocate
           <button onClick={() => api.openHelp("dng_converter").catch(() => {})}>Get Adobe DNG Converter (free)</button>
           <button className="primary" onClick={onRetry}>Try again</button>
         </div>
+      )}
+      {dngConverter && photo.kind === "raw" && !photo.converted_dng && photo.decode_status === "supported" && (
+        <button className="ghost small-btn" onClick={onUseConverter}
+          title="Re-open this photo through Adobe DNG Converter (use if colours or edges look wrong)">
+          Use Adobe DNG Converter for this photo
+        </button>
       )}
       {photo.converted_dng && (
         <p className="small muted">Decoded via Adobe DNG Converter{photo.high_efficiency ? " (Nikon High Efficiency NEF)" : ""}.

@@ -243,9 +243,12 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
         return {"ok": True}
 
     @app.post("/api/photos/{photo_id}/reprocess")
-    def reprocess(photo_id: str):
+    def reprocess(photo_id: str, use_dng_converter: bool = False):
         _get(photo_id)
-        store.update(photo_id, status="queued", status_message="Waiting to be processed")
+        if use_dng_converter and converter.find_dng_converter() is None:
+            raise HTTPException(409, "Adobe DNG Converter is not installed.")
+        store.update(photo_id, status="queued", status_message="Waiting to be processed",
+                     **({"force_dng": True} if use_dng_converter else {}))
         return _start_import([photo_id])
 
     @app.get("/api/photos/{photo_id}/image/{name}")

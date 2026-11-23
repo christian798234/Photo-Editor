@@ -131,3 +131,35 @@ def test_missing_camera_profile_is_flagged_or_converted(client, tmp_path, monkey
     p = client.get(f"/api/photos/{rec['id']}").json()
     assert p["decode_status"] == "supported" and p["converted_dng"] is True and p["profile_warning"] == ""
     assert real is not None
+
+
+def test_empty_border_detection():
+    import numpy as np
+
+    from birdedit.decode import _has_empty_border
+    img = np.full((400, 600, 3), 0.2, np.float32)
+    assert not _has_empty_border(img)
+    bad = img.copy()
+    bad[380:, :] = 0.0                      # black band along the bottom (like the a7 V screenshot)
+    assert _has_empty_border(bad)
+    bad2 = img.copy()
+    bad2[:, 592:] = 0.0                     # dark strip on the right
+    assert _has_empty_border(bad2)
+    night = np.full((400, 600, 3), 0.0005, np.float32)
+    assert not _has_empty_border(night)     # a genuinely dark photo is not flagged
+
+
+def test_force_dng_converter_for_one_photo(client, tmp_path, monkeypatch):
+    src = make_synthetic_dng(tmp_path / "sony.ARW")
+    store = client.app.state.store
+    rec = store.create(src, "linked", src.name)
+    monkeypatch.setenv("BIRDEDIT_DNG_CONVERTER", str(tmp_path / "missing.exe"))
+    client.post(f"/api/photos/{rec['id']}/reprocess")
+    wait_jobs(client)
+    assert client.get(f"/api/photos/{rec['id']}").json()["converted_dng"] is False
+    assert client.post(f"/api/photos/{rec['id']}/reprocess?use_dng_converter=true").status_code == 409
+    monkeypatch.setenv("BIRDEDIT_DNG_CONVERTER", str(fake_converter(tmp_path)))
+    assert client.post(f"/api/photos/{rec['id']}/reprocess?use_dng_converter=true").status_code == 200
+    wait_jobs(client)
+    p = client.get(f"/api/photos/{rec['id']}").json()
+    assert p["decode_status"] == "supported" and p["converted_dng"] is True and p["profile_warning"] == ""

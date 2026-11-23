@@ -54,7 +54,8 @@ export const api = {
   photos: () => json<Photo[]>("/api/photos"),
   photo: (id: string) => json<Photo>(`/api/photos/${id}`),
   remove: (id: string) => json(`/api/photos/${id}`, { method: "DELETE" }),
-  reprocess: (id: string) => json<Job>(`/api/photos/${id}/reprocess`, { method: "POST" }),
+  reprocess: (id: string, useDngConverter = false) =>
+    json<Job>(`/api/photos/${id}/reprocess${useDngConverter ? "?use_dng_converter=true" : ""}`, { method: "POST" }),
   importDialog: () => json<{ job: Job | null; photo_ids: string[] }>("/api/import/dialog", { method: "POST" }),
   upload: (files: File[]) => {
     const fd = new FormData();

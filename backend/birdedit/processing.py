@@ -269,8 +269,11 @@ class Processor:
                 return {"item": photo_id, "ok": False, "message": f"{name}: conversion failed"}
         # The decoder read the file but has no colour profile for this (newer)
         # camera: colours would be guesswork. Prefer Adobe's DNG, which has one.
-        profile_missing = sniff.kind == formats.Kind.RAW and converted is None and \
-            not dec.info.get("profile_known", True)
+        suspect = (not dec.info.get("profile_known", True)) or dec.info.get("empty_border", False)
+        force = bool(rec.get("force_dng"))
+        profile_missing = sniff.kind == formats.Kind.RAW and converted is None and (suspect or force)
+        if dec.info.get("empty_border"):
+            log.warning("%s: decoded frame has an empty border (decoder may not know this camera)", name)
         if profile_missing:
             exe = converter.find_dng_converter()
             if exe is not None:
@@ -282,9 +285,12 @@ class Processor:
                                         camera_name=md.camera.display_name)
                     del dng
                     profile_missing = False
-                except (converter.ConversionError, decode.DecodeError, OSError):
+                except (converter.ConversionError, decode.DecodeError, OSError) as e:
                     log.exception("conversion for missing camera profile failed")
                     converted = None
+                    if force:
+                        st.update(photo_id, force_dng=False)
+                        raise RuntimeError(f"Adobe DNG Converter could not convert this file: {e}") from e
         del data
         job.item_progress = 0.7
         nm = noise.estimate(dec.image, dec.noise_native_scale, md.iso)
@@ -302,7 +308,8 @@ class Processor:
                   decode_error="", metadata=md.to_dict(), decoder_info=info,
                   full_size=full_size, noise_model=nm.to_dict(), preview_kind="rendered",
                   converted_dng=converted is not None,
-                  profile_warning=(profile_warning_message(md.camera.display_name) if profile_missing else ""))
+                  profile_warning=(profile_warning_message(md.camera.display_name)
+                                   if profile_missing and suspect else ""))
         return {"item": photo_id, "ok": True, "message": f"{name}: ready"}
 
     # ------------------------------------------------------------- auto

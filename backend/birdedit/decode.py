@@ -121,6 +121,23 @@ def profile_known(raw: rawpy.RawPy, is_dng: bool) -> bool:
         return True
 
 
+def _has_empty_border(img: np.ndarray) -> bool:
+    """True if a band along the bottom or right edge is essentially black while
+    the photo itself is not: a sign the decoder used the wrong image area for
+    this camera (unused sensor pixels)."""
+    h, w = img.shape[:2]
+    if h < 64 or w < 64:
+        return False
+    y = img.mean(axis=2)
+    body = float(np.median(y[: int(h * 0.8), : int(w * 0.8)]))
+    if body < 0.002:
+        return False                                   # genuinely dark photo
+    bh, bw = max(2, int(h * 0.005)), max(2, int(w * 0.005))   # outermost 0.5% of each edge
+    band_b = y[h - bh:, :]
+    band_r = y[:, w - bw:]
+    return bool(np.percentile(band_b, 95) < body * 0.02 or np.percentile(band_r, 95) < body * 0.02)
+
+
 def raw_info(raw: rawpy.RawPy) -> dict:
     wb = [float(x) for x in raw.camera_whitebalance]
     has_wb = any(x > 0 for x in wb[:3])
@@ -191,6 +208,7 @@ def decode_raw(data: bytes, half: bool, camera_name: str = "", md=None) -> Decod
         raise DecodeError("The RAW file decoded to an empty image; the file is probably "
                           "damaged or incomplete.")
     info["profile_known"] = known
+    info["empty_border"] = _has_empty_border(img)
     log.info("decoded %s: frame %sx%s flip %s, official crop %s, colour profile %s",
              camera_name or "RAW", W0, H0, flip, crop, "known" if known else "MISSING")
     if crop is not None:

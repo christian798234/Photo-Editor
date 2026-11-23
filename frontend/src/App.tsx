@@ -35,6 +35,7 @@ export function App() {
   const [nativeDialogs, setNativeDialogs] = useState(true);
   const [shell, setShell] = useState<"browser" | "desktop">("browser");
   const [version, setVersion] = useState("");
+  const [dngConverter, setDngConverter] = useState(false);
   const shellRef = useRef<"browser" | "desktop">("browser");
   const [subject, setSubject] = useState<SubjectStatus | null>(null);
   const [showMask, setShowMask] = useState(false);
@@ -94,6 +95,7 @@ export function App() {
     api.system().then((s) => {
       setNativeDialogs(!!s.native_dialogs);
       setVersion(String(s.version ?? ""));
+      setDngConverter(!!s.dng_converter);
       const sh = s.shell === "desktop" ? "desktop" : "browser";
       setShell(sh);
       shellRef.current = sh;
@@ -256,25 +258,6 @@ export function App() {
       setBusy(false);
     }
   }, [photo, setNow, fail, refresh]);
-
-  /* ------------------------------------------------------ second screen */
-  useEffect(() => {
-    if (shell !== "desktop") return;
-    const t = window.setTimeout(() => {
-      api.setDisplay({ photo_id: photo && photo.decode_status === "supported" ? photo.id : null,
-        recipe: photo ? recipe : null, compare, name: photo?.original_name ?? "" }).catch(() => {});
-    }, 200);
-    return () => window.clearTimeout(t);
-  }, [shell, photo?.id, photo?.decode_status, recipe, compare]);  // eslint-disable-line react-hooks/exhaustive-deps
-
-  const openSecondScreen = useCallback(async () => {
-    try {
-      const r = await api.secondScreen();
-      if (r.already_open) toast("The second-screen preview is already open.");
-      else toast(r.other_monitor ? "Opened a large preview on your other monitor. It follows what you edit here."
-        : "Opened a preview window. Drag it to another monitor if you have one.");
-    } catch (e) { fail(e); }
-  }, [toast, fail]);
 
   /* ------------------------------------------------------ bird selection */
   const enableSubject = useCallback(async (on: boolean) => {
@@ -536,10 +519,6 @@ export function App() {
                 <span className="long">Paste settings</span><span className="short">Paste</span>{selected.size > 1 ? ` (${selected.size})` : ""}
               </button>
             </div>
-            {shell === "desktop" && (
-              <button onClick={openSecondScreen} disabled={!photo} title="Show a large preview on your other monitor">
-                <span className="long">Second screen</span><span className="short">2nd screen</span></button>
-            )}
             {narrow && (
               <button className={`panel-toggle ${panelOpen ? "active" : ""}`} aria-expanded={panelOpen}
                 onClick={() => setPanelOpen((o) => !o)}>{panelOpen ? "Hide panel" : "Adjust ▸"}</button>
@@ -567,7 +546,11 @@ export function App() {
           {narrow && <button className="ghost close-panel" onClick={() => setPanelOpen(false)} aria-label="Close panel">×</button>}
           {photo ? (
             <>
-              <InfoPanel photo={photo} onLocate={locate} onRetry={() => api.reprocess(photo.id).then(() => { startPolling(); refresh(); }).catch(fail)} />
+              <InfoPanel photo={photo} onLocate={locate} dngConverter={dngConverter}
+                onRetry={() => api.system().then((s) => setDngConverter(!!s.dng_converter)).catch(() => {})
+                  .then(() => api.reprocess(photo.id)).then(() => { startPolling(); refresh(); }).catch(fail)}
+                onUseConverter={() => api.reprocess(photo.id, true).then(() => {
+                  toast("Re-opening with Adobe DNG Converter…"); startPolling(); refresh(); }).catch(fail)} />
               <Adjustments photo={photo} recipe={recipe} onChange={onChange} onLook={(l) => autoEdit(l)} busy={busy}
                 autoRecipe={lastAuto} maskUsable={!!photo.mask?.usable} limits={limits} onToggleLimits={toggleLimits}
                 onSuggestCrop={async (aspect, portrait) => {
