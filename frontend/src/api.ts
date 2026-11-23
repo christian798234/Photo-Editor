@@ -31,7 +31,9 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
   }
   if (!res.ok) {
     let body: any = null;
-    let msg = `Request failed (${res.status})`;
+    let msg = res.status >= 500
+      ? `Something went wrong inside Bird Photo Editor (error ${res.status}). The log file is in %LOCALAPPDATA%\\BirdPhotoEditor\\logs.`
+      : `Request failed (${res.status})`;
     try {
       body = await res.json();
       if (typeof body?.detail === "string") msg = body.detail;

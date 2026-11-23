@@ -99,6 +99,29 @@ begin
     Exec(RemoveQuotes(Uninstaller), '', '', SW_SHOW, ewWaitUntilTerminated, Code);
 end;
 
+{ Close a running copy so the new files are used and no old version keeps
+  running in the background (its edits are already saved). }
+procedure CloseRunningApp();
+var
+  Code: Integer;
+begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /T /IM BirdPhotoEditor.exe', '', SW_HIDE,
+       ewWaitUntilTerminated, Code);
+  Sleep(800);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  CloseRunningApp();
+  Result := '';
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  CloseRunningApp();
+  Result := True;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataDir: String;

@@ -148,6 +148,14 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
     app = FastAPI(title="Bird Photo Editor", version=__version__, docs_url=None, redoc_url=None,
                   openapi_url=None, lifespan=lifespan)
     app.add_middleware(LocalGuard, port=port, token=token, extra_origins=dev_origins)
+
+    @app.exception_handler(Exception)
+    async def unexpected_error(request, exc):  # pragma: no cover - safety net
+        log.exception("unexpected error in %s %s", request.method, request.url.path)
+        return JSONResponse(status_code=500, content={
+            "detail": f"Something went wrong inside Bird Photo Editor {__version__} "
+                      f"({exc.__class__.__name__}: {str(exc)[:160]}). Details were written to the log file "
+                      f"{paths.logs / 'bird-photo-editor.log'}"})
     app.state.store, app.state.proc, app.state.jobs = store, proc, jobs
     app.state.shell = "browser"          # "desktop" when shown in the program window
     pending_relocations: dict[str, tuple[str, str]] = {}
@@ -184,6 +192,16 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
     @app.get("/api/health")
     def health():
         return {"app": "bird-photo-editor", "version": __version__}
+
+    @app.post("/api/quit")
+    def quit_app():
+        """Used when a newer version starts while this one is running.
+        Same-origin/localhost checks still apply (see security.py)."""
+        fn = getattr(app.state, "quit_app", None)
+        if fn is None:
+            raise HTTPException(409, "Not supported in this mode")
+        threading.Timer(0.3, fn).start()
+        return {"ok": True}
 
     @app.post("/api/show")
     def show():

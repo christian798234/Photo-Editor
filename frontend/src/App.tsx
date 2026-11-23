@@ -34,6 +34,7 @@ export function App() {
   const [dragOver, setDragOver] = useState(false);
   const [nativeDialogs, setNativeDialogs] = useState(true);
   const [shell, setShell] = useState<"browser" | "desktop">("browser");
+  const [version, setVersion] = useState("");
   const shellRef = useRef<"browser" | "desktop">("browser");
   const [subject, setSubject] = useState<SubjectStatus | null>(null);
   const [showMask, setShowMask] = useState(false);
@@ -91,6 +92,7 @@ export function App() {
   useEffect(() => {
     api.system().then((s) => {
       setNativeDialogs(!!s.native_dialogs);
+      setVersion(String(s.version ?? ""));
       const sh = s.shell === "desktop" ? "desktop" : "browser";
       setShell(sh);
       shellRef.current = sh;
@@ -475,7 +477,7 @@ export function App() {
   return (
     <div className={`app ${dragOver ? "drag-over" : ""}`}>
       <header className="topbar">
-        <div className="brand"><span className="long">Bird Photo Editor</span><span className="short">Bird Editor</span></div>
+        <div className="brand" title={version ? `Bird Photo Editor ${version}` : undefined}><span className="long">Bird Photo Editor</span><span className="short">Bird Editor</span></div>
         <ol className="steps" aria-label="Workflow">
           {["Import Photos", "Auto Edit", "Review", "Export"].map((s, i) => (
             <li key={s} className={i + 1 === step ? "current" : i + 1 < step ? "done" : ""}>{i + 1}. {s}</li>
@@ -590,6 +592,7 @@ export function App() {
                 }).catch(fail)}
                 onChange={onChange} />
               <HistoryPanel history={historyView} onJump={jumpTo} />
+              {version && <p className="small muted version-line">Bird Photo Editor {version}</p>}
             </>
           ) : (
             <p className="muted pad">No photo selected.</p>

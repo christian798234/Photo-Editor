@@ -238,6 +238,15 @@ class DesktopWindow:
         except Exception:
             log.exception("drop import failed")
 
+    def close(self) -> None:
+        """Close the window (and so the app), e.g. when a newer version starts."""
+        try:
+            self._save_geometry()
+            self.window.destroy()
+        except Exception:
+            log.exception("closing the window failed")
+            self.on_closed()
+
     def bring_to_front(self) -> None:
         """Called when the program is started again while already open."""
         try:

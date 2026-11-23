@@ -96,3 +96,30 @@ def test_display_relay_and_second_screen_endpoints(client):
     # Browser mode: no second-screen window available.
     assert client.post("/api/second-screen").status_code == 409
     assert client.get("/api/screens").json()["shell"] == "browser"
+
+
+def test_quit_endpoint_and_version_check(data_dir):
+    from fastapi.testclient import TestClient
+
+    from birdedit import __version__
+    from birdedit.server import create_app
+    app = create_app(token="secret", port=8765, data_dir=data_dir)
+    c = TestClient(app, base_url="http://127.0.0.1:8765")
+    assert c.get("/api/health").json()["version"] == __version__
+    quit_called = []
+    app.state.quit_app = lambda: quit_called.append(True)
+    assert c.post("/api/quit").json() == {"ok": True}
+    import time
+    time.sleep(0.6)
+    assert quit_called == [True]
+    assert c.post("/api/quit", headers={"Origin": "https://evil.example"}).status_code == 403
+    app.state.jobs.shutdown()
+
+
+def test_unexpected_errors_explain_and_point_to_log(client, monkeypatch):
+    from fastapi.testclient import TestClient
+    c = TestClient(client.app, base_url="http://127.0.0.1:8765", raise_server_exceptions=False)
+    c.headers.update({"X-BirdEdit-Token": "test-token"})
+    monkeypatch.setattr(client.app.state.store, "list", lambda: 1 / 0)
+    r = c.get("/api/photos")
+    assert r.status_code == 500 and "ZeroDivisionError" in r.json()["detail"] and "log file" in r.json()["detail"]

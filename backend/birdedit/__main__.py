@@ -51,12 +51,31 @@ def port_is_free(port: int) -> bool:
             return False
 
 
-def existing_instance(port: int) -> bool:
+def instance_version(port: int) -> str | None:
+    """Version of a Bird Photo Editor running on ``port``, or None."""
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=1) as r:
-            return json.loads(r.read().decode()).get("app") == "bird-photo-editor"
+            d = json.loads(r.read().decode())
+            return str(d.get("version", "")) if d.get("app") == "bird-photo-editor" else None
+    except Exception:
+        return None
+
+
+def existing_instance(port: int) -> bool:
+    return instance_version(port) is not None
+
+
+def ask_old_instance_to_quit(port: int) -> bool:
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/api/quit", data=b"", method="POST")
+        urllib.request.urlopen(req, timeout=2).read()
     except Exception:
         return False
+    for _ in range(40):
+        time.sleep(0.25)
+        if port_is_free(port):
+            return True
+    return False
 
 
 def pick_port(requested: int | None) -> tuple[int, bool]:
@@ -143,6 +162,19 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     url = f"http://127.0.0.1:{port}/"
     if running:
+        from . import __version__
+        other = instance_version(port)
+        if other and other != __version__:
+            # A different (usually older) version is still running: replace it.
+            log.info("version %s is running on port %s; asking it to quit", other, port)
+            if ask_old_instance_to_quit(port):
+                running = False
+            else:
+                message_box("Bird Photo Editor",
+                            f"An older version of Bird Photo Editor ({other}) is still running.\n\n"
+                            "Close its window (or restart your PC), then start Bird Photo Editor again.")
+                return 0
+    if running:
         shell = _ask_existing_to_show(port)
         print(f"Bird Photo Editor is already running at {url}")
         if shell != "desktop" and ui != "server" and not args.no_browser:
@@ -182,6 +214,8 @@ def main(argv: list[str] | None = None) -> int:
     def stop() -> None:
         server.should_exit = True
 
+    app.state.quit_app = stop               # server-only mode; replaced below for windows
+
     failed: list = []
 
     def serve() -> None:
@@ -213,6 +247,7 @@ def main(argv: list[str] | None = None) -> int:
             cand = Path(sys.executable).parent / "_internal" / "icon.ico"
             icon = str(cand) if cand.exists() else None
         win = desktop.DesktopWindow(url, stop, paths.root / "webview", app.state.import_paths, icon)
+        app.state.quit_app = win.close
         dialogs.set_desktop(win)
         app.state.show_window = win.bring_to_front
         app.state.open_second_screen = win.open_second_screen
@@ -235,6 +270,7 @@ def main(argv: list[str] | None = None) -> int:
             from .app_window import ControlWindow
             window = ControlWindow(url, stop, log_file)
             dialogs.set_window(window)
+            app.state.quit_app = lambda: window.root.after(0, window.quit)
         except Exception:
             log.warning("control window unavailable; running without it", exc_info=True)
             window = None
