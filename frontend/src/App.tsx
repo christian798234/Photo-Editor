@@ -4,6 +4,7 @@ import { Adjustments } from "./components/Adjustments";
 import { BirdPanel, type SelectTool } from "./components/BirdPanel";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { describeChange } from "./history";
+import { useMediaQuery } from "./useRender";
 import { ExportDialog } from "./components/ExportDialog";
 import { Filmstrip } from "./components/Filmstrip";
 import { InfoPanel } from "./components/InfoPanel";
@@ -41,6 +42,8 @@ export function App() {
   const [historyView, setHistoryView] = useState<History | null>(null);
   const [limits, setLimits] = useState<Limits | null>(null);
   const [editLevel, setEditLevel] = useState<EditLevel | null>(null);
+  const narrow = useMediaQuery("(max-width: 900px)");
+  const [panelOpen, setPanelOpen] = useState(false);
 
   const histories = useRef(new Map<string, History>());
   const commitTimer = useRef<number | null>(null);
@@ -251,6 +254,25 @@ export function App() {
     }
   }, [photo, setNow, fail, refresh]);
 
+  /* ------------------------------------------------------ second screen */
+  useEffect(() => {
+    if (shell !== "desktop") return;
+    const t = window.setTimeout(() => {
+      api.setDisplay({ photo_id: photo && photo.decode_status === "supported" ? photo.id : null,
+        recipe: photo ? recipe : null, compare, name: photo?.original_name ?? "" }).catch(() => {});
+    }, 200);
+    return () => window.clearTimeout(t);
+  }, [shell, photo?.id, photo?.decode_status, recipe, compare]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const openSecondScreen = useCallback(async () => {
+    try {
+      const r = await api.secondScreen();
+      if (r.already_open) toast("The second-screen preview is already open.");
+      else toast(r.other_monitor ? "Opened a large preview on your other monitor. It follows what you edit here."
+        : "Opened a preview window. Drag it to another monitor if you have one.");
+    } catch (e) { fail(e); }
+  }, [toast, fail]);
+
   /* ------------------------------------------------------ bird selection */
   const enableSubject = useCallback(async (on: boolean) => {
     try {
@@ -453,14 +475,15 @@ export function App() {
   return (
     <div className={`app ${dragOver ? "drag-over" : ""}`}>
       <header className="topbar">
-        <div className="brand">Bird Photo Editor</div>
+        <div className="brand"><span className="long">Bird Photo Editor</span><span className="short">Bird Editor</span></div>
         <ol className="steps" aria-label="Workflow">
           {["Import Photos", "Auto Edit", "Review", "Export"].map((s, i) => (
             <li key={s} className={i + 1 === step ? "current" : i + 1 < step ? "done" : ""}>{i + 1}. {s}</li>
           ))}
         </ol>
         <div className="actions">
-          <button onClick={importDialog} title="Choose RAW, JPEG or TIFF files">Import Photos</button>
+          <button onClick={importDialog} title="Import Photos: choose RAW, JPEG or TIFF files">
+            <span className="long">Import Photos</span><span className="short">Import</span></button>
           {shell === "browser" && (
             <button className="ghost" onClick={() => fileInput.current?.click()} title="Copy files in through the browser">Upload copies…</button>
           )}
@@ -470,20 +493,24 @@ export function App() {
           <button className="primary" disabled={!ready || busy} onClick={() => autoEdit(recipe.look === "crisp" ? "crisp" : "natural")}>
             {busy ? "Editing…" : "Auto Edit"}
           </button>
-          <button disabled={!photos.some((p) => p.decode_status === "supported")} onClick={autoAll}>Auto Edit All</button>
+          <button disabled={!photos.some((p) => p.decode_status === "supported")} onClick={autoAll} title="Auto Edit All">
+            <span className="long">Auto Edit All</span><span className="short">Edit all</span></button>
           <button disabled={!photos.some((p) => p.decode_status === "supported")} onClick={() => setShowExport(true)}>Export…</button>
         </div>
       </header>
 
       <JobsBar jobs={jobs} />
 
-      <main className="workspace">
+      <main className={`workspace ${narrow ? "narrow" : ""} ${narrow && panelOpen ? "panel-open" : ""}`}>
         <section className="center">
           <div className="view-toolbar" role="toolbar" aria-label="View options">
             <div className="seg" role="radiogroup" aria-label="Compare">
-              {([["after", "After"], ["before", "Before"], ["slider", "Before/After slider"], ["side", "Side by side"]] as const).map(([v, l]) => (
+              {([["after", "After", "After"], ["before", "Before", "Before"], ["slider", "Before/After slider", "Slider"],
+                ["side", "Side by side", "Side"]] as const).map(([v, l, sh]) => (
                 <button key={v} role="radio" aria-checked={compare === v} className={compare === v ? "active" : ""}
-                  onClick={() => setCompare(v)} disabled={!!cropDraft}>{l}</button>
+                  onClick={() => setCompare(v)} disabled={!!cropDraft} title={l}>
+                  <span className="long">{l}</span><span className="short">{sh}</span>
+                </button>
               ))}
             </div>
             <div className="seg" role="radiogroup" aria-label="Zoom">
@@ -495,15 +522,25 @@ export function App() {
               <button onClick={() => undoRedo(-1)} disabled={!canUndo} title="Undo (Ctrl+Z)">Undo</button>
               <button onClick={() => undoRedo(1)} disabled={!canRedo} title="Redo (Ctrl+Y)">Redo</button>
               <button onClick={() => setNow({ ...BASELINE }, "Revert to original")} disabled={!ready}
-                title="Back to the unedited baseline rendering (can be undone)">Revert to original</button>
+                title="Revert to original: back to the unedited baseline rendering (can be undone)">
+                <span className="long">Revert to original</span><span className="short">Revert</span></button>
             </div>
             <div className="seg">
-              <button onClick={copySettings} disabled={!ready}>Copy settings</button>
+              <button onClick={copySettings} disabled={!ready} title="Copy settings">
+                <span className="long">Copy settings</span><span className="short">Copy</span></button>
               <button onClick={pasteSettings} disabled={!clip || !ready}
-                title={selected.size > 1 ? `Paste to ${selected.size} selected photos` : "Paste to this photo"}>
-                Paste settings{selected.size > 1 ? ` (${selected.size})` : ""}
+                title={selected.size > 1 ? `Paste settings to ${selected.size} selected photos` : "Paste settings to this photo"}>
+                <span className="long">Paste settings</span><span className="short">Paste</span>{selected.size > 1 ? ` (${selected.size})` : ""}
               </button>
             </div>
+            {shell === "desktop" && (
+              <button onClick={openSecondScreen} disabled={!photo} title="Show a large preview on your other monitor">
+                <span className="long">Second screen</span><span className="short">2nd screen</span></button>
+            )}
+            {narrow && (
+              <button className={`panel-toggle ${panelOpen ? "active" : ""}`} aria-expanded={panelOpen}
+                onClick={() => setPanelOpen((o) => !o)}>{panelOpen ? "Hide panel" : "Adjust ▸"}</button>
+            )}
           </div>
           <Viewer photo={photo} recipe={recipe} compare={compare} zoom={zoom} setZoom={setZoom}
             cropDraft={cropDraft} setCropDraft={setCropDraft}
@@ -523,7 +560,8 @@ export function App() {
           <Filmstrip photos={photos} currentId={currentId} selected={selected} onSelect={onSelect} onRemove={removePhoto} />
         </section>
 
-        <aside className="sidebar">
+        <aside className="sidebar" aria-hidden={narrow && !panelOpen ? true : undefined}>
+          {narrow && <button className="ghost close-panel" onClick={() => setPanelOpen(false)} aria-label="Close panel">×</button>}
           {photo ? (
             <>
               <InfoPanel photo={photo} onLocate={locate} onRetry={() => api.reprocess(photo.id).then(() => { startPolling(); refresh(); }).catch(fail)} />

@@ -185,3 +185,48 @@ input[type="number"] { width: 90px; }
 .level-light { background: #24452f; color: #9be3b0; }
 .level-moderate { background: #45401f; color: #f2dc8d; }
 .level-strong { background: #4f2a24; color: #ffb4a8; }
+
+/* ---------- responsive: Windows Snap / split screen and small windows ---------- */
+.short { display: none; }
+@media (max-width: 1180px) {
+  .steps { display: none; }
+  .view-toolbar .long, .topbar .long { display: none; }
+  .view-toolbar .short, .topbar .short { display: inline; }
+  .sidebar { width: 290px; }
+}
+@media (max-width: 760px) {
+  .topbar { gap: 8px; padding: 6px 10px; }
+  .actions { margin-left: 0; }
+  .actions button, .view-toolbar button { padding: 4px 8px; font-size: 12.5px; }
+  .view-toolbar { gap: 6px; padding: 6px 8px; }
+}
+.workspace { position: relative; overflow: hidden; }
+.workspace.narrow .sidebar {
+  position: absolute; top: 0; right: 0; bottom: 0; z-index: 30; width: min(340px, 92vw);
+  transform: translateX(105%); transition: transform .18s ease; box-shadow: -8px 0 24px rgba(0,0,0,.45);
+}
+.workspace.narrow.panel-open .sidebar { transform: none; }
+.workspace.narrow .sidebar[aria-hidden="true"] { visibility: hidden; transition: transform .18s ease, visibility 0s .18s; }
+.close-panel { float: right; font-size: 18px; line-height: 18px; padding: 2px 8px; }
+.panel-toggle { margin-left: auto; }
+@media (max-height: 760px) {
+  .filmstrip { min-height: 86px; padding: 6px 10px; }
+  .thumb { width: 104px; height: 76px; }
+  .summary { padding: 6px 12px; font-size: 13px; }
+}
+@media (max-height: 560px) {
+  .filmstrip { min-height: 70px; }
+  .thumb { width: 84px; height: 60px; }
+  .thumb-name { display: none; }
+}
+
+/* ---------- second-screen preview window ---------- */
+.second-screen { position: fixed; inset: 0; background: #000; }
+.second-screen.empty { display: grid; place-items: center; color: var(--muted); }
+.ss-pane { position: absolute; inset: 0; }
+.ss-pane img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.ss-split { position: absolute; inset: 0; display: flex; gap: 2px; }
+.ss-split .ss-pane { position: relative; flex: 1; }
+.ss-info { position: absolute; left: 12px; bottom: 10px; background: rgba(0,0,0,.6); color: #ddd; padding: 3px 10px;
+  border-radius: 4px; font-size: 12px; transition: opacity .4s; }
+.ss-info.hidden { opacity: 0; }

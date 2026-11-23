@@ -13,8 +13,10 @@ Also provides:
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
+import threading
 from pathlib import Path
 from typing import Callable
 
@@ -52,6 +54,70 @@ def available() -> tuple[bool, str]:
     return True, ""
 
 
+def file_types(patterns: str) -> tuple[str, ...]:
+    """Build pywebview file filters. pywebview only accepts a label made of
+    letters, digits and spaces, followed by (*.ext;*.ext). Windows matches
+    extensions case-insensitively, so lower-case patterns are enough."""
+    exts = sorted({p.lower() for p in patterns.split() if p.startswith("*.")})
+    candidates = [f"Photos ({';'.join(exts)})", "All files (*.*)"]
+    try:
+        from webview.util import parse_file_type
+    except Exception:                 # pywebview not installed (tests on Linux)
+        return tuple(candidates)
+    valid = []
+    for c in candidates:
+        try:
+            parse_file_type(c)
+            valid.append(c)
+        except ValueError:
+            log.warning("skipping invalid file filter %r", c)
+    return tuple(valid)
+
+
+# ------------------------------------------------------------- geometry
+
+DEFAULT_SIZE = (1440, 920)
+MIN_SIZE = (640, 480)          # small enough to snap to half (or a quarter) of a screen
+
+
+def choose_geometry(saved: dict | None, screens: list) -> dict | None:
+    """Validate a saved window rectangle against the connected screens.
+
+    Returns {x, y, width, height, maximized} to restore, or None to let the
+    window open centred on the main screen (e.g. the monitor it was on has
+    been unplugged). ``screens`` items need x, y, width, height attributes.
+    """
+    if not saved or not screens:
+        return None
+    try:
+        x, y = int(saved["x"]), int(saved["y"])
+        w, h = int(saved["width"]), int(saved["height"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    best = None
+    for sc in screens:
+        ix = min(x + w, sc.x + sc.width) - max(x, sc.x)
+        iy = min(y + h, sc.y + sc.height) - max(y, sc.y)
+        # The title bar area must be visible on this screen.
+        if ix >= 160 and iy >= 80 and sc.y <= y + 10 < sc.y + sc.height:
+            best = sc
+            break
+    if best is None:
+        return None
+    w = max(MIN_SIZE[0], min(w, best.width))
+    h = max(MIN_SIZE[1], min(h, best.height))
+    x = min(max(x, best.x), best.x + best.width - w)
+    y = min(max(y, best.y), best.y + best.height - h)
+    return {"x": x, "y": y, "width": w, "height": h, "maximized": bool(saved.get("maximized"))}
+
+
+def screen_of(screens: list, cx: float, cy: float):
+    for sc in screens:
+        if sc.x <= cx < sc.x + sc.width and sc.y <= cy < sc.y + sc.height:
+            return sc
+    return screens[0] if screens else None
+
+
 class DesktopWindow:
     def __init__(self, url: str, on_closed: Callable[[], None], storage: Path,
                  import_paths: Callable[[list[str]], dict] | None = None, icon: str | None = None):
@@ -62,15 +128,81 @@ class DesktopWindow:
         self.import_paths = import_paths
         self.storage = storage
         self.icon = icon
+        self.url = url
+        self.second = None
+        self._lock = threading.Lock()
+        self._geom_file = storage.parent / "window.json"
+        saved = None
+        try:
+            saved = json.loads(self._geom_file.read_text("utf-8"))
+        except (OSError, ValueError):
+            pass
+        try:
+            screens = list(webview.screens)
+        except Exception:
+            screens = []
+        geom = choose_geometry(saved, screens)
+        self._geom = dict(geom or {"x": None, "y": None, "width": DEFAULT_SIZE[0],
+                                   "height": DEFAULT_SIZE[1], "maximized": False})
+        log.info("screens: %s; restoring window %s",
+                 [(s.x, s.y, s.width, s.height, getattr(s, "scale", 1.0)) for s in screens], geom)
         self.window = webview.create_window(
-            "Bird Photo Editor", url, width=1440, height=920, min_size=(1000, 660),
-            background_color="#1b1c1f", text_select=True)
-        self.window.events.closed += self._closed
-        self.window.events.loaded += self._loaded
+            "Bird Photo Editor", url, width=self._geom["width"], height=self._geom["height"],
+            x=self._geom["x"], y=self._geom["y"], maximized=self._geom["maximized"],
+            min_size=MIN_SIZE, background_color="#1b1c1f", text_select=True)
+        ev = self.window.events
+        ev.closed += self._closed
+        ev.closing += self._save_geometry
+        ev.loaded += self._loaded
+        ev.moved += self._moved
+        ev.resized += self._resized
+        ev.maximized += lambda *a: self._geom.update(maximized=True)
+        ev.restored += lambda *a: self._geom.update(maximized=False)
 
     # -------------------------------------------------------------- events
+    def _moved(self, *args) -> None:
+        if len(args) >= 2 and not self._geom.get("maximized"):
+            self._geom.update(x=int(args[0]), y=int(args[1]))
+        self._save_soon()
+
+    def _resized(self, *args) -> None:
+        if len(args) >= 2 and not self._geom.get("maximized"):
+            self._geom.update(width=int(args[0]), height=int(args[1]))
+        self._save_soon()
+
+    def _save_soon(self) -> None:
+        """Also save shortly after moving/resizing, not only on close."""
+        t = getattr(self, "_save_timer", None)
+        if t is not None:
+            t.cancel()
+        self._save_timer = threading.Timer(1.5, self._write_geometry)
+        self._save_timer.daemon = True
+        self._save_timer.start()
+
+    def _write_geometry(self) -> None:
+        try:
+            if self._geom.get("x") is not None:
+                self._geom_file.write_text(json.dumps(self._geom), "utf-8")
+        except OSError:
+            log.debug("could not save window position", exc_info=True)
+
+    def _save_geometry(self, *args) -> None:
+        try:
+            if not self._geom.get("maximized"):
+                self._geom.update(x=self.window.x, y=self.window.y,
+                                  width=self.window.width, height=self.window.height)
+            self._write_geometry()
+        except Exception:
+            log.debug("could not save window position", exc_info=True)
+
     def _closed(self) -> None:
         log.info("desktop window closed")
+        second = self.second
+        if second is not None:
+            try:
+                second.destroy()
+            except Exception:
+                pass
         try:
             self.on_closed()
         except Exception:
@@ -116,11 +248,60 @@ class DesktopWindow:
         except Exception:
             log.debug("bring to front failed", exc_info=True)
 
+    # --------------------------------------------------------- second screen
+    def screens_info(self) -> dict:
+        try:
+            screens = list(self.webview.screens)
+        except Exception:
+            screens = []
+        return {"count": len(screens), "second_open": self.second is not None}
+
+    def open_second_screen(self) -> dict:
+        """Open (or bring forward) a large preview window, on another monitor
+        when one is connected."""
+        with self._lock:
+            if self.second is not None:
+                try:
+                    self.second.restore()
+                    self.second.show()
+                    return {"ok": True, "other_monitor": None, "already_open": True}
+                except Exception:
+                    self.second = None
+            try:
+                screens = list(self.webview.screens)
+            except Exception:
+                screens = []
+            target, other = None, False
+            if screens:
+                try:
+                    cx = self.window.x + self.window.width / 2
+                    cy = self.window.y + self.window.height / 2
+                    current = screen_of(screens, cx, cy)
+                except Exception:
+                    current = screens[0]
+                others = [s for s in screens if s is not current]
+                target = others[0] if others else current
+                other = bool(others)
+            kwargs = {"maximized": True} if other else {"width": 1200, "height": 800}
+            if target is not None:
+                kwargs["screen"] = target
+            win = self.webview.create_window(
+                "Bird Photo Editor - Second screen", self.url.rstrip("/") + "/?view=second",
+                background_color="#000000", min_size=(320, 240), **kwargs)
+
+            def gone(*a):
+                self.second = None
+
+            win.events.closed += gone
+            win.events.loaded += lambda *a: log.info("second-screen window loaded")
+            self.second = win
+            log.info("second-screen window opened (other monitor: %s)", other)
+            return {"ok": True, "other_monitor": other, "already_open": False}
+
     # ------------------------------------------------------------- dialogs
     def choose(self, mode: str, arg: str) -> list[str]:
         wv = self.webview
-        types = ("Photos (RAW, JPEG, TIFF) (" + ";".join(sorted({p for p in arg.split() if p})) + ")",
-                 "All files (*.*)")
+        types = file_types(arg)
         if mode == "files":
             res = self.window.create_file_dialog(wv.FileDialog.OPEN, allow_multiple=True, file_types=types)
         elif mode == "file":

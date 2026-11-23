@@ -158,3 +158,10 @@ export const BASELINE: Recipe = {
   crop: null,
   auto_applied: false,
 };
+
+export interface DisplayState {
+  photo_id: string | null;
+  recipe: Recipe | null;
+  compare: "after" | "before" | "slider" | "side";
+  name: string;
+}

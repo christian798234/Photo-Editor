@@ -97,6 +97,20 @@ jobs:
           else { Write-Host "::warning::The program window did not report loading (no interactive desktop on the CI machine?)." }
           $show = Invoke-RestMethod -Method Post http://127.0.0.1:8790/api/show
           Write-Host "Second-launch check: running shell = $($show.shell)"
+          $h = @{ 'X-BirdEdit-Token' = 'ci' }
+          $scr = Invoke-RestMethod -Headers $h http://127.0.0.1:8790/api/screens
+          Write-Host "Monitors seen by the app: $($scr.count)"
+          $ss = Invoke-RestMethod -Method Post -Headers $h http://127.0.0.1:8790/api/second-screen
+          $ssLoaded = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            if (Select-String -Path "$env:BIRDEDIT_DATA_DIR\logs\*.log" -Pattern "second-screen window loaded" -Quiet) { $ssLoaded = $true; break }
+            Start-Sleep -Seconds 1
+          }
+          if ($ssLoaded) { Write-Host "SECOND SCREEN: preview window opened and loaded (other monitor: $($ss.other_monitor))." }
+          else { Write-Host "::warning::The second-screen window did not report loading." }
+          Start-Sleep -Seconds 2
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $bmp.Save("screenshots\second-screen.png")
           python packaging/ci_smoke.py http://127.0.0.1:8790 ci "$env:RUNNER_TEMP\exports ü"
           $smoke = $LASTEXITCODE
           Write-Host "---- app log ----"

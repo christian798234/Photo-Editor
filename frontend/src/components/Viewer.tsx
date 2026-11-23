@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, imageUrl } from "../api";
 import type { Crop, Photo, Recipe } from "../types";
 import { BASELINE } from "../types";
-import { useElementSize, useRenderedImage } from "../useRender";
+import { useDevicePixelRatio, useElementSize, useRenderedImage } from "../useRender";
 import { CropOverlay } from "./CropOverlay";
 import { MaskLayer } from "./MaskLayer";
 
@@ -24,7 +24,6 @@ interface Props {
   onSelectClick: (x: number, y: number) => void;
 }
 
-const DPR = () => window.devicePixelRatio || 1;
 
 function cropRectPx(photo: Photo, crop: Crop | null) {
   const [fw, fh] = photo.full_size ?? [0, 0];
@@ -40,7 +39,8 @@ function FitPane(props: { photo: Photo; recipe: Recipe; before: boolean; ignoreC
   onDoubleClick?: (fx: number, fy: number) => void }) {
   const { photo, recipe, before, ignoreCrop } = props;
   const [ref, size] = useElementSize<HTMLDivElement>();
-  const maxEdge = Math.min(2048, Math.max(256, Math.ceil(Math.max(size.w, size.h) * DPR())));
+  const dpr = useDevicePixelRatio();
+  const maxEdge = Math.min(2048, Math.max(256, Math.ceil(Math.max(size.w, size.h) * dpr)));
   const ready = photo.decode_status === "supported" && size.w > 0;
   const body = useMemo(
     () => (ready ? { recipe, before, max_edge: maxEdge, ignore_crop: !!ignoreCrop } : null),
@@ -80,7 +80,7 @@ interface Tile { url: string; x: number; y: number; w: number; h: number }
 function ZoomPane(props: { photo: Photo; recipe: Recipe; before: boolean; pan: { x: number; y: number };
   view: { w: number; h: number }; label?: string }) {
   const { photo, recipe, before, pan, view } = props;
-  const dpr = DPR();
+  const dpr = useDevicePixelRatio();
   const crop = cropRectPx(photo, recipe.crop);
   const [tile, setTile] = useState<Tile | null>(null);
   const [status, setStatus] = useState<string>("");
@@ -141,7 +141,7 @@ export function Viewer({ photo, recipe, compare, zoom, setZoom, cropDraft, setCr
   const drag = useRef<{ sx: number; sy: number; px: number; py: number } | null>(null);
   const before = useMemo<Recipe>(() => ({ ...BASELINE, crop: recipe.crop }), [recipe.crop]);
   const crop = photo ? cropRectPx(photo, recipe.crop) : { x: 0, y: 0, w: 0, h: 0 };
-  const dpr = DPR();
+  const dpr = useDevicePixelRatio();
   const paneW = compare === "side" ? Math.floor(box.w / 2) : box.w;
 
   const clampPan = useCallback((p: { x: number; y: number }) => ({

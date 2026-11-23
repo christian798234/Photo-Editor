@@ -215,6 +215,8 @@ def main(argv: list[str] | None = None) -> int:
         win = desktop.DesktopWindow(url, stop, paths.root / "webview", app.state.import_paths, icon)
         dialogs.set_desktop(win)
         app.state.show_window = win.bring_to_front
+        app.state.open_second_screen = win.open_second_screen
+        app.state.screens_info = win.screens_info
         try:
             win.run()                      # returns when the window is closed
         except Exception:

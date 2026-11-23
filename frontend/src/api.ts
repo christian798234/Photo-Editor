@@ -1,4 +1,4 @@
-import type { Crop, EditLevel, History, Job, Limits, MaskInfo, Photo, Recipe, Settings, SubjectStatus } from "./types";
+import type { Crop, DisplayState, EditLevel, History, Job, Limits, MaskInfo, Photo, Recipe, Settings, SubjectStatus } from "./types";
 
 function readToken(): string {
   const meta = document.querySelector('meta[name="birdedit-token"]')?.getAttribute("content") ?? "";
@@ -81,6 +81,11 @@ export const api = {
   cropSuggestion: (id: string, aspect: string, portrait: boolean) =>
     json<{ crop: Crop | null; message: string; pixels?: [number, number] }>(`/api/photos/${id}/crop-suggestion`, {
       method: "POST", body: JSON.stringify({ aspect, portrait }) }),
+  setDisplay: (state: object) => json<{ version: number }>("/api/display", { method: "POST", body: JSON.stringify(state) }),
+  display: (since: number, signal?: AbortSignal) =>
+    request(`/api/display?since=${since}`, { signal }).then((r) => r.json() as Promise<{ version: number; state: DisplayState | null }>),
+  screens: () => json<{ count: number; second_open: boolean; shell: string }>("/api/screens"),
+  secondScreen: () => json<{ ok: boolean; other_monitor: boolean | null; already_open: boolean }>("/api/second-screen", { method: "POST" }),
   history: (id: string) => json<History>(`/api/photos/${id}/history`),
   saveHistory: (id: string, h: History) => json(`/api/photos/${id}/history`, { method: "PUT", body: JSON.stringify(h) }),
   paste: (ids: string[], s: Pick<Recipe, "look" | "strength" | "sliders">) =>

@@ -50,6 +50,20 @@ Runtime* from Microsoft to get the program window).
 In the program window, **dragging photos or a whole folder** onto it links the originals where they are (no
 copies are made).
 
+### Two monitors and split screen
+
+* **Second screen**: click **Second screen** in the toolbar to open a large preview of the current photo on
+  your other monitor. It follows what you do in the main window (After, Before, or Before/After side by side
+  when the slider or side-by-side view is selected). Close it (or press Esc in it) when you are done. The
+  preview uses the editing preview (up to 2048 px); use the 100% view to check fine detail.
+* The window **reopens where you left it**: same monitor, size and maximized state. If that monitor is no
+  longer connected, it opens on the main screen.
+* Moving the window between monitors with different Windows scaling (e.g. a laptop at 150% and a monitor at
+  100%) keeps the 100% view pixel-accurate.
+* **Split screen / Snap**: the window can be snapped to half (or a quarter) of the screen (Win + ←/→). In
+  narrow windows the toolbar labels shorten and the adjustment panel becomes a slide-out panel: click
+  **Adjust ▸** to open it and **×** to close it.
+
 <details>
 <summary>Alternative: run from the source code (developers, or if you prefer not to use the installer)</summary>
 

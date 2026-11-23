@@ -64,3 +64,30 @@ export function useElementSize<T extends HTMLElement>() {
   }, []);
   return [ref, size] as const;
 }
+
+/** devicePixelRatio that updates when the window moves to a monitor with a
+ * different Windows scaling (e.g. laptop at 150% + external monitor at 100%). */
+export function useDevicePixelRatio(): number {
+  const [dpr, setDpr] = useState(() => window.devicePixelRatio || 1);
+  useEffect(() => {
+    const mq = window.matchMedia(`(resolution: ${dpr}dppx)`);
+    const onChange = () => setDpr(window.devicePixelRatio || 1);
+    mq.addEventListener("change", onChange);
+    window.addEventListener("resize", onChange);
+    return () => { mq.removeEventListener("change", onChange); window.removeEventListener("resize", onChange); };
+  }, [dpr]);
+  return dpr;
+}
+
+/** True when a CSS media query matches (re-evaluated on resize/snap). */
+export function useMediaQuery(query: string): boolean {
+  const [match, setMatch] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const on = () => setMatch(mq.matches);
+    on();
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, [query]);
+  return match;
+}

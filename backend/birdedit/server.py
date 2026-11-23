@@ -100,6 +100,13 @@ class History(BaseModel):
     index: int = Field(ge=0)
 
 
+class DisplayState(BaseModel):
+    photo_id: Optional[str] = None
+    recipe: Optional[Recipe] = None
+    compare: Literal["after", "before", "slider", "side"] = "after"
+    name: str = Field("", max_length=300)
+
+
 class RelocateConfirm(BaseModel):
     pending_id: str
 
@@ -252,9 +259,11 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
     def import_dialog():
         try:
             chosen = dialogs.choose_files()
-        except dialogs.DialogUnavailable as e:
-            raise HTTPException(501, f"The Windows file dialog is not available here ({e}). "
-                                     "Drag photos onto the window or use 'Upload copies' instead.")
+        except Exception as e:
+            log.exception("file dialog failed")
+            raise HTTPException(501, f"The Windows file dialog could not be opened ({e.__class__.__name__}). "
+                                     "Click Import Photos again to choose photos another way, or drag "
+                                     "them onto the window.") from None
         return import_paths(chosen)
 
     @app.post("/api/import/upload")
@@ -293,8 +302,9 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
         rec = _get(photo_id)
         try:
             chosen = dialogs.choose_file()
-        except dialogs.DialogUnavailable as e:
-            raise HTTPException(501, f"The Windows file dialog is not available here ({e}).")
+        except Exception as e:
+            log.exception("file dialog failed")
+            raise HTTPException(501, f"The Windows file dialog could not be opened ({e.__class__.__name__}).") from None
         if not chosen:
             return {"ok": False, "cancelled": True}
         path = Path(chosen[0])
@@ -372,6 +382,42 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
     def limits():
         return {"enabled": load_settings().natural_limits,
                 "limits": {k: list(v) for k, v in restraint.NATURAL_LIMITS.items()}}
+
+    # ------------------------------------------------- second screen / dual monitor
+    display = {"version": 0, "state": None}
+    display_cond = threading.Condition()
+
+    @app.post("/api/display")
+    def set_display(state: DisplayState):
+        """The main window publishes what it shows; the second-screen window follows."""
+        with display_cond:
+            display["version"] += 1
+            display["state"] = state.model_dump()
+            display_cond.notify_all()
+        return {"version": display["version"]}
+
+    @app.get("/api/display")
+    def get_display(since: int = 0):
+        with display_cond:
+            display_cond.wait_for(lambda: display["version"] > since, timeout=20)
+            return dict(display)
+
+    @app.get("/api/screens")
+    def screens():
+        fn = getattr(app.state, "screens_info", None)
+        info = fn() if fn else {"count": 0, "second_open": False}
+        return {**info, "shell": app.state.shell}
+
+    @app.post("/api/second-screen")
+    def second_screen():
+        fn = getattr(app.state, "open_second_screen", None)
+        if fn is None:
+            raise HTTPException(409, "The second-screen preview is available in the Bird Photo Editor program window.")
+        try:
+            return fn()
+        except Exception as e:
+            log.exception("second screen failed")
+            raise HTTPException(500, f"The second-screen window could not be opened ({e.__class__.__name__}).") from None
 
     # ------------------------------------------------------------- history
     @app.get("/api/photos/{photo_id}/history")
@@ -521,9 +567,10 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
     def choose_folder():
         try:
             chosen = dialogs.choose_folder("Choose where to save exported photos")
-        except dialogs.DialogUnavailable as e:
-            raise HTTPException(501, f"The Windows folder dialog is not available here ({e}). "
-                                     "Type or paste the folder path instead.")
+        except Exception as e:
+            log.exception("folder dialog failed")
+            raise HTTPException(501, f"The Windows folder dialog could not be opened ({e.__class__.__name__}). "
+                                     "Type or paste the folder path instead.") from None
         return {"path": chosen[0] if chosen else ""}
 
     @app.post("/api/export")
