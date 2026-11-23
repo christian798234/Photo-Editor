@@ -33,7 +33,7 @@ import numpy as np
 
 from .config import AppPaths
 from .recipe import Recipe
-from .winpath import io_path
+from .winpath import io_path, read_text, replace_file
 
 _ID_RE = re.compile(r"^[0-9a-f]{32}$")
 
@@ -56,7 +56,7 @@ def atomic_write_text(path: Path, text: str) -> None:
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, io_path(path))
+        replace_file(tmp, path)
     except BaseException:
         try:
             os.unlink(tmp)
@@ -86,6 +86,9 @@ class Store:
         self.photos_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._preview_cache: OrderedDict[str, tuple[np.ndarray, float]] = OrderedDict()
+        # Photo records are kept in memory: the UI polls them constantly, and on
+        # Windows reading a file while it is being replaced makes the write fail.
+        self._records: dict[str, dict] = {}
         self._project_file = self.root / "project.json"
         if not self._project_file.exists():
             atomic_write_text(self._project_file, json.dumps({"order": []}))
@@ -93,7 +96,7 @@ class Store:
     # ----------------------------------------------------------- order
     def _order(self) -> list[str]:
         try:
-            return json.loads(self._project_file.read_text("utf-8")).get("order", [])
+            return json.loads(read_text(self._project_file)).get("order", [])
         except (OSError, ValueError):
             return []
 
@@ -129,6 +132,7 @@ class Store:
         }
         with self._lock:
             atomic_write_text(self.photo_dir(photo_id) / "photo.json", json.dumps(rec, indent=1))
+            self._records[photo_id] = rec
             order = self._order()
             order.append(photo_id)
             self._set_order(order)
@@ -136,17 +140,24 @@ class Store:
 
     def get(self, photo_id: str) -> dict:
         p = self.photo_dir(photo_id) / "photo.json"
-        try:
-            return json.loads(p.read_text("utf-8"))
-        except FileNotFoundError:
-            raise NotFound("Unknown photo") from None
+        with self._lock:
+            cached = self._records.get(photo_id)
+            if cached is not None:
+                return json.loads(json.dumps(cached))       # independent copy
+            try:
+                rec = json.loads(read_text(p))
+            except FileNotFoundError:
+                raise NotFound("Unknown photo") from None
+            self._records[photo_id] = rec
+            return json.loads(json.dumps(rec))
 
     def update(self, photo_id: str, **fields: Any) -> dict:
         with self._lock:
             rec = self.get(photo_id)
             rec.update(fields)
             atomic_write_text(self.photo_dir(photo_id) / "photo.json", json.dumps(rec, indent=1))
-            return rec
+            self._records[photo_id] = rec
+            return json.loads(json.dumps(rec))
 
     def list(self) -> list[dict]:
         out = []
@@ -163,6 +174,7 @@ class Store:
             rec = self.get(photo_id)
             order = [p for p in self._order() if p != photo_id]
             self._set_order(order)
+            self._records.pop(photo_id, None)
             shutil.rmtree(self.photo_dir(photo_id), ignore_errors=True)
             shutil.rmtree(self.paths.cache / photo_id, ignore_errors=True)
             self._preview_cache.pop(photo_id, None)
@@ -192,7 +204,7 @@ class Store:
         p = self.photo_dir(photo_id) / "recipe.json"
         if not p.exists():
             return Recipe()
-        return Recipe.model_validate_json(p.read_text("utf-8"))
+        return Recipe.model_validate_json(read_text(p))
 
     def put_recipe(self, photo_id: str, recipe: Recipe) -> None:
         self.get(photo_id)
@@ -201,7 +213,7 @@ class Store:
     def get_facts(self, photo_id: str) -> dict:
         p = self.photo_dir(photo_id) / "facts.json"
         try:
-            return json.loads(p.read_text("utf-8"))
+            return json.loads(read_text(p))
         except (OSError, ValueError):
             return {}
 
@@ -213,7 +225,7 @@ class Store:
         d = self.cache_dir(photo_id)
         tmp = d / ".preview.tmp.npy"
         np.save(io_path(tmp), img.astype(np.float16))
-        os.replace(io_path(tmp), io_path(d / "preview.npy"))
+        replace_file(tmp, d / "preview.npy")
         atomic_write_text(d / "preview.json", json.dumps({"scale": scale, "shape": list(img.shape)}))
         with self._lock:
             self._preview_cache[photo_id] = (img.astype(np.float32), scale)
@@ -227,7 +239,7 @@ class Store:
         d = self.paths.cache / valid_id(photo_id)
         try:
             img = np.load(io_path(d / "preview.npy")).astype(np.float32)
-            scale = json.loads((d / "preview.json").read_text("utf-8"))["scale"]
+            scale = json.loads(read_text(d / "preview.json"))["scale"]
         except (OSError, ValueError, KeyError):
             return None
         with self._lock:

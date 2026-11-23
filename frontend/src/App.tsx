@@ -60,7 +60,9 @@ export function App() {
 
   const toast = useCallback((text: string, kind: "info" | "error" = "info") => {
     const id = Date.now() + Math.random();
-    setToasts((t) => [...t, { id, text, kind }]);
+    // Never stack the same message twice (e.g. a failing background refresh),
+    // and keep at most three messages on screen.
+    setToasts((t) => (t.some((x) => x.text === text) ? t : [...t, { id, text, kind }].slice(-3)));
     // Errors stay until closed so they can be read and copied.
     if (kind !== "error") window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4500);
   }, []);
@@ -594,6 +596,9 @@ export function App() {
       )}
 
       <div className="toasts" aria-live="assertive">
+        {toasts.filter((t) => t.kind === "error").length > 1 && (
+          <button className="toast-clear" onClick={() => setToasts([])}>Close all messages</button>
+        )}
         {toasts.map((t) => (
           <div key={t.id} className={`toast ${t.kind}`} role={t.kind === "error" ? "alert" : "status"}>
             <span className="toast-text">{t.text}</span>

@@ -156,6 +156,16 @@ def _exif_tags(data: bytes) -> dict:
 def _apply_tags(md: CaptureMetadata, tags: dict, source: str) -> None:
     if not tags:
         return
+    # Canon CR3 stores the EXIF and GPS blocks as separate TIFF structures, so
+    # ExifRead labels their tags "Image X" instead of "EXIF X" / "GPS X".
+    tags = dict(tags)
+    for k in list(tags):
+        if k.startswith("Image "):
+            name = k[6:]
+            if name.startswith("GPS"):
+                tags.setdefault(f"GPS {name}", tags[k])
+            else:
+                tags.setdefault(f"EXIF {name}", tags[k])
     if not md.camera.identified:
         cam = camera_from_strings(_str(tags.get("Image Make")), _str(tags.get("Image Model")), source)
         if cam.identified:

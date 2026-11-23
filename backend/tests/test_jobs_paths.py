@@ -81,3 +81,37 @@ def test_data_dir_is_per_user_on_windows(monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", "C:\\Users\\Ana\\AppData\\Local")
     assert str(config.default_data_dir()).endswith("BirdPhotoEditor")
     assert "Program Files" not in str(config.default_data_dir())
+
+
+def test_busy_file_is_retried(monkeypatch, tmp_path):
+    """Windows refuses to replace a file another reader has open; we retry."""
+    import os as _os
+    from birdedit.store import atomic_write_text
+    real = _os.replace
+    calls = {"n": 0}
+
+    def flaky(src, dst):
+        calls["n"] += 1
+        if calls["n"] <= 3:
+            raise PermissionError(13, "Permission denied", dst)
+        return real(src, dst)
+
+    monkeypatch.setattr(_os, "replace", flaky)
+    target = tmp_path / "photo.json"
+    atomic_write_text(target, '{"ok": true}')
+    assert target.read_text() == '{"ok": true}' and calls["n"] == 4
+
+
+def test_store_serves_records_from_memory(tmp_path):
+    from birdedit.config import AppPaths
+    from birdedit.store import Store
+    st = Store(AppPaths(tmp_path / "d"))
+    src = tmp_path / "a.jpg"
+    src.write_bytes(b"x")
+    rec = st.create(src, "linked", "a.jpg")
+    st.update(rec["id"], status="ready")
+    (st.photo_dir(rec["id"]) / "photo.json").unlink()        # disk read would now fail
+    assert st.get(rec["id"])["status"] == "ready"
+    r = st.get(rec["id"])
+    r["status"] = "mutated"                                   # callers get independent copies
+    assert st.get(rec["id"])["status"] == "ready"

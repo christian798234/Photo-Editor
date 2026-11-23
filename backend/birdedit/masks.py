@@ -444,7 +444,8 @@ def save_mask_files(folder: Path, result: MaskResult, mask: np.ndarray | None) -
         ok, buf = cv2.imencode(".png", mask)
         tmp = folder / ".mask.tmp.png"
         tmp.write_bytes(buf.tobytes())
-        os.replace(tmp, p)
+        from .winpath import replace_file
+        replace_file(tmp, p)
     elif p.exists():
         p.unlink()
     atomic_write_text(folder / "mask.json", json.dumps(result.to_dict(), indent=1))
@@ -452,7 +453,8 @@ def save_mask_files(folder: Path, result: MaskResult, mask: np.ndarray | None) -
 
 def load_mask(folder: Path) -> tuple[dict | None, np.ndarray | None]:
     try:
-        info = json.loads((folder / "mask.json").read_text("utf-8"))
+        from .winpath import read_text
+        info = json.loads(read_text(folder / "mask.json"))
     except (OSError, ValueError):
         return None, None
     p = folder / "mask.png"

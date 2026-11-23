@@ -26,7 +26,7 @@ from PIL import Image, ImageCms
 
 from . import __version__, color
 from .metadata import CaptureMetadata
-from .winpath import io_path, reserve_unique_path
+from .winpath import io_path, replace_file, reserve_unique_path
 
 SOFTWARE = f"Bird Photo Editor {__version__}"
 _SRGB_ICC: bytes | None = None
@@ -210,7 +210,7 @@ def write_output(pixels: np.ndarray, md: CaptureMetadata, stem: str, opts: Expor
                                  software=SOFTWARE, extratags=extratags, metadata=None)
         if os.name != "nt":
             os.chmod(tmp, 0o644)            # mkstemp creates 0600 files
-        os.replace(tmp, io_path(final))     # replaces only our own reserved empty file
+        replace_file(tmp, final)            # replaces only our own reserved empty file
     except BaseException:
         for p in (tmp, io_path(final)):
             try:

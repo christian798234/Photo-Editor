@@ -128,7 +128,8 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
 
     def load_settings() -> SettingsModel:
         try:
-            return SettingsModel.model_validate_json(paths.settings_file.read_text("utf-8"))
+            from .winpath import read_text
+            return SettingsModel.model_validate_json(read_text(paths.settings_file))
         except (OSError, ValidationError, ValueError):
             return SettingsModel()
 
@@ -447,7 +448,8 @@ def create_app(token: str, port: int, data_dir: Path | None = None,
         _get(photo_id)
         p = store.photo_dir(photo_id) / "history.json"
         try:
-            h = History.model_validate_json(p.read_text("utf-8"))
+            from .winpath import read_text
+            h = History.model_validate_json(read_text(p))
             return h.model_dump()
         except (OSError, ValidationError, ValueError):
             import time as _t

@@ -69,6 +69,35 @@ def reserve_unique_path(folder: Path, stem: str, suffix: str) -> Path:
     raise RuntimeError("Could not find a free filename")
 
 
+def retry_on_busy(fn, attempts: int = 40, delay: float = 0.025):
+    """Run ``fn`` again if Windows reports the file as busy.
+
+    On Windows, replacing or opening a file fails with PermissionError while
+    another reader has it open, or while antivirus/indexing briefly scans a
+    freshly written file. These locks last milliseconds, so wait and retry.
+    """
+    import time
+    for i in range(attempts):
+        try:
+            return fn()
+        except PermissionError:
+            if i == attempts - 1:
+                raise
+            time.sleep(delay * (1 + i // 8))
+
+
+def replace_file(src, dst) -> None:
+    """os.replace with retries for briefly locked files (Windows)."""
+    retry_on_busy(lambda: os.replace(io_path(src), io_path(dst)))
+
+
+def read_text(path) -> str:
+    def _read():
+        with open(io_path(path), "r", encoding="utf-8") as f:
+            return f.read()
+    return retry_on_busy(_read)
+
+
 def is_within(child: Path, parent: Path) -> bool:
     try:
         child.resolve().relative_to(parent.resolve())

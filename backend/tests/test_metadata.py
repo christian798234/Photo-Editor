@@ -78,3 +78,65 @@ def test_filename_is_never_used_for_camera(tmp_path):
     p = tmp_path / "NIKON_D850_DSC_0001.jpg"
     Image.fromarray(gradient_image()).save(p, "JPEG")
     assert read_metadata(p.read_bytes(), Container.JPEG).camera.display_name == "Unknown camera"
+
+
+def _cr3(make, model, lens=None, iso=None):
+    """Minimal Canon CR3 container: moov/uuid(Canon)/CMT1 (IFD0) + CMT2 (EXIF)."""
+    import io
+
+    import tifffile
+    b1 = io.BytesIO()
+    tifffile.imwrite(b1, np.zeros((2, 2), np.uint8),
+                     extratags=[(271, "s", 0, make, True), (272, "s", 0, model, True)])
+    tags2 = []
+    if lens:
+        tags2.append((42036, "s", 0, lens, True))           # LensModel
+    if iso:
+        tags2.append((34855, "H", 1, (iso,), True))         # ISOSpeedRatings
+    b2 = io.BytesIO()
+    tifffile.imwrite(b2, np.zeros((2, 2), np.uint8), extratags=tags2)
+
+    def box(t, payload):
+        return struct.pack(">I4s", 8 + len(payload), t) + payload
+
+    uuid = box(b"uuid", bytes.fromhex("85c0b687820f11e08111f4ce462b6a48")
+               + box(b"CMT1", b1.getvalue()) + box(b"CMT2", b2.getvalue()))
+    return box(b"ftyp", b"crx \x00\x00\x00\x01") + box(b"moov", uuid)
+
+
+def test_canon_cr3_camera_lens_and_iso():
+    md = read_metadata(_cr3("Canon", "Canon EOS R7", "RF100-500mm F4.5-7.1 L IS USM", 1600), Container.CR3)
+    assert md.camera.display_name == "Canon EOS R7"
+    assert md.camera.make_raw == "Canon" and md.camera.model_raw == "Canon EOS R7"
+    assert md.lens == "RF100-500mm F4.5-7.1 L IS USM" and md.iso == 1600
+
+
+def test_canon_cr2_is_tiff_based(tmp_path):
+    from conftest import make_tiff_raw_stub
+    from birdedit.formats import Kind, classify
+    cr2 = make_tiff_raw_stub(tmp_path / "IMG_0001.CR2", "Canon", "Canon EOS 90D")
+    data = cr2.read_bytes()
+    assert classify(data[:64], ".CR2").kind == Kind.RAW
+    assert read_metadata(data, Container.TIFF).camera.display_name == "Canon EOS 90D"
+
+
+def test_canon_models_in_bundled_decoder():
+    """Documents (and guards) which current Canon bodies the bundled LibRaw knows."""
+    import os
+    import re
+
+    import rawpy
+    libdir = os.path.dirname(rawpy.__file__)
+    blob = b""
+    for root, _dirs, files in os.walk(os.path.dirname(libdir)):
+        for f in files:
+            if "libraw" in f.lower() or (f.startswith("_rawpy") and root == libdir):
+                try:
+                    blob += open(os.path.join(root, f), "rb").read()
+                except OSError:
+                    pass
+    if not blob:
+        import pytest
+        pytest.skip("decoder library not found on disk")
+    for model in (b"EOS R5", b"EOS R6 Mark II", b"EOS R7", b"EOS R8", b"EOS R10", b"EOS R1", b"EOS 90D"):
+        assert re.search(re.escape(model), blob), model

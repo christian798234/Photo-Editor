@@ -91,12 +91,18 @@ def _crop_rect(raw: rawpy.RawPy) -> tuple[int, int, int, int] | None:
     """The camera's official image area (from maker notes or DNG DefaultCrop),
     in unrotated sensor coordinates, if it is smaller than the decoded frame."""
     s = raw.sizes
-    if s.crop_width > 0 and s.crop_height > 0 and (s.crop_width < s.width or s.crop_height < s.height):
-        x, y = int(s.crop_left_margin), int(s.crop_top_margin)
-        w, h = min(int(s.crop_width), s.width - x), min(int(s.crop_height), s.height - y)
-        if w > 16 and h > 16:
-            return x, y, w, h
-    return None
+    if s.crop_width <= 0 or s.crop_height <= 0:
+        return None
+    # LibRaw gives the crop origin relative to the whole sensor readout
+    # (raw_width x raw_height); the decoded image starts at left/top_margin.
+    x = int(s.crop_left_margin) - int(s.left_margin)
+    y = int(s.crop_top_margin) - int(s.top_margin)
+    w, h = int(s.crop_width), int(s.crop_height)
+    if x < 0 or y < 0 or x + w > s.width or y + h > s.height:
+        return None                    # inconsistent metadata: keep the full decoded frame
+    if w >= s.width and h >= s.height:
+        return None
+    return x, y, w, h
 
 
 def _rotate_rect(rect, W: int, H: int, flip: int):

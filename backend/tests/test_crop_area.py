@@ -44,3 +44,30 @@ def test_no_crop_when_not_provided(tmp_path):
     data = p.read_bytes()
     dec = decode.decode(data, formats.classify(data[:64], ".dng"), half=False)
     assert dec.full_size == (600, 400) and dec.image.shape[:2] == (400, 600)
+
+
+def test_crop_origin_is_relative_to_full_sensor(tmp_path):
+    """LibRaw reports the official area relative to the whole sensor readout
+    (as Canon CR3 and DNG ActiveArea files have masked borders). Found with a
+    real Canon EOS R6 Mark II CR3: 6000x4000 starting 14/12 px inside the
+    decoded frame, not 168/108."""
+    import tifffile
+    h, w = 400, 600
+    yy, xx = np.mgrid[0:h, 0:w]
+    raw = (512 + (0.05 + 0.4 * xx / w + 0.3 * (yy / h) ** 2) * 15000).astype(np.uint16)
+    raw[:10, :] = 0
+    raw[:, :12] = 0
+    cm = [1.0, -0.2, -0.1, -0.3, 1.2, 0.1, -0.05, 0.2, 0.8]
+    srat = [x for v in cm for x in (int(round(v * 10000)), 10000)]
+    p = tmp_path / "aa.dng"
+    tifffile.imwrite(p, raw, photometric=32803, metadata=None, extratags=[
+        (271, "s", 0, "SONY", True), (272, "s", 0, "T", True), (50706, "B", 4, (1, 4, 0, 0), True),
+        (33421, "H", 2, (2, 2), True), (33422, "B", 4, (0, 1, 1, 2), True), (50714, "H", 1, (512,), True),
+        (50717, "H", 1, (16383,), True), (50728, "2I", 3, (10000, 10000, 10000, 10000, 10000, 10000), True),
+        (50721, "2i", 9, srat, True), (50778, "H", 1, (21,), True),
+        (50829, "I", 4, (10, 12, 400, 600), True),               # ActiveArea: masked top/left border
+        (50719, "I", 2, (4, 2), True), (50720, "I", 2, (576, 384), True)])
+    data = p.read_bytes()
+    dec = decode.decode(data, formats.classify(data[:64], ".dng"), half=False)
+    assert dec.full_size == (576, 384)
+    assert dec.info["official_crop"] == [4, 2, 576, 384]        # inside the 588x390 decoded frame
