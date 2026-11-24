@@ -22,7 +22,7 @@ TARGET_KEY = 0.18          # linear centre-weighted log-average target
 # Calibrated against camera JPEGs (Canon R6 II standard picture style: about
 # 1.25x the baseline saturation and 1.4-1.5x its tonal range). JPEG/TIFF input
 # has already been developed by the camera, so it only gets a light touch.
-RAW_TARGETS = {"sat": 1.25, "range": 1.42, "sat_cap": 0.40, "range_cap": 0.74}
+RAW_TARGETS = {"sat": 1.32, "range": 1.45, "sat_cap": 0.42, "range_cap": 0.75}
 RENDERED_TARGETS = {"sat": 1.06, "range": 1.05, "sat_cap": 0.40, "range_cap": 0.74}
 
 

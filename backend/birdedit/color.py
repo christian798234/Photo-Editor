@@ -84,3 +84,54 @@ def gamut_map_to_srgb(prophoto_lin: np.ndarray) -> np.ndarray:
         t = np.where(over, np.minimum(t, (1 - y) / np.maximum(mx - y, 1e-9)), t)
     t = np.clip(t, 0.0, 1.0)
     return np.clip(y + d * t, 0.0, 1.0).astype(np.float32)
+
+
+# --------------------------------------------------------------------------
+# OkLab (Björn Ottosson, 2020): a perceptual space where changing chroma at
+# fixed lightness and hue looks like "more/less colour" without hue shifts.
+# Defined on linear sRGB (D65).
+
+_M1 = np.array([[0.4122214708, 0.5363325363, 0.0514459929],
+                [0.2119034982, 0.6806995451, 0.1073969566],
+                [0.0883024619, 0.2817188376, 0.6299787005]], np.float32)
+_M2 = np.array([[0.2104542553, 0.7936177850, -0.0040720468],
+                [1.9779984951, -2.4285922050, 0.4505937099],
+                [0.0259040371, 0.7827717662, -0.8086757660]], np.float32)
+_M1_INV = np.linalg.inv(_M1.astype(np.float64)).astype(np.float32)
+_M2_INV = np.linalg.inv(_M2.astype(np.float64)).astype(np.float32)
+
+
+def srgb_linear_to_oklab(rgb: np.ndarray) -> np.ndarray:
+    lms = apply_matrix(rgb, _M1)
+    return apply_matrix(np.cbrt(lms), _M2)
+
+
+def oklab_to_srgb_linear(lab: np.ndarray) -> np.ndarray:
+    lms = apply_matrix(lab, _M2_INV)
+    return apply_matrix(lms * lms * lms, _M1_INV)
+
+
+def gamut_compress_oklab(rgb: np.ndarray, iters: int = 10) -> np.ndarray:
+    """Bring linear sRGB into [0, 1] by reducing OkLab chroma only, keeping
+    perceived lightness and hue (saturated reds/blues keep their hue).
+    Lightness itself is clipped to the displayable range first."""
+    rgb = rgb.astype(np.float32, copy=False)
+    out_of = (rgb.min(axis=2) < -1e-5) | (rgb.max(axis=2) > 1 + 1e-5)
+    if not out_of.any():
+        return np.clip(rgb, 0.0, 1.0)
+    lab = srgb_linear_to_oklab(rgb[out_of][None])[0]          # N x 3
+    lab[:, 0] = np.clip(lab[:, 0], 0.0, 1.0)
+    lo = np.zeros(len(lab), np.float32)
+    hi = np.ones(len(lab), np.float32)
+    ab = lab[:, 1:].copy()
+    for _ in range(iters):
+        mid = (lo + hi) / 2
+        trial = np.concatenate([lab[:, :1], ab * mid[:, None]], axis=1)
+        t_rgb = oklab_to_srgb_linear(trial[None])[0]
+        ok = (t_rgb.min(axis=1) >= -1e-5) & (t_rgb.max(axis=1) <= 1 + 1e-5)
+        lo = np.where(ok, mid, lo)
+        hi = np.where(ok, hi, mid)
+    final = np.concatenate([lab[:, :1], ab * lo[:, None]], axis=1)
+    res = rgb.copy()
+    res[out_of] = np.clip(oklab_to_srgb_linear(final[None])[0], 0.0, 1.0)
+    return np.clip(res, 0.0, 1.0)

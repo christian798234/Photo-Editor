@@ -22,6 +22,7 @@ def test_official_crop_matches_reference_for_each_orientation(tmp_path, orientat
     # Reference: decode unrotated, crop in sensor coordinates, then rotate.
     r = rawpy.imread(io.BytesIO(data))
     ref = r.postprocess(output_bps=16, gamma=(1, 1), no_auto_bright=True, use_camera_wb=True,
+                        demosaic_algorithm=rawpy.DemosaicAlgorithm.DHT, highlight_mode=rawpy.HighlightMode.Clip,
                         output_color=rawpy.ColorSpace.ProPhoto, user_flip=0).astype(np.float32) / 65535
     x, y, w, h = 8, 4, 584, 392
     ref = ROT[orientation](ref[y:y + h, x:x + w])

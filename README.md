@@ -266,9 +266,11 @@ file's new location. If the file isn't identical to the one imported, you'll be 
 * Without a bird selection, exposure metering is centre-weighted (a heuristic).
 * Noise reduction smooths noise; it cannot restore detail that was never recorded. Clipped highlights and
   missed focus cannot be recovered.
-* Fit-view previews approximate noise reduction and sharpening; the **100% view and exports are exact**.
+* Fit-view previews approximate noise reduction and sharpening; the **100% view and exports are exact** and use
+  capture sharpening (Richardson-Lucy deconvolution), which restores some lens/sensor softness but cannot fix
+  missed focus or motion blur.
 * Measured on the 4-core Linux test machine (your speed will differ): fit-view updates 0.3–1 s; a 12 MP RAW
-  export about 6 s; bird detection 0.5–2.6 s per photo; a selection refinement click about 0.15 s.
+  export about 17 s (24 MP Canon CR3, including capture sharpening); bird detection 0.5–2.6 s per photo; a selection refinement click about 0.15 s.
 
 ## What has and has not been verified
 

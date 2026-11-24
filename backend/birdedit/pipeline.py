@@ -200,6 +200,18 @@ def _guided(I: np.ndarray, r: int, eps: float) -> np.ndarray:
     return mean_a * I + mean_b
 
 
+def _rl_deconvolve(y: np.ndarray, sigma: float, iters: int) -> np.ndarray:
+    """Richardson-Lucy deconvolution of a luminance image (values > 0)."""
+    obs = np.maximum(y, 1e-4)
+    est = obs.copy()
+    for _ in range(iters):
+        conv = cv2.GaussianBlur(est, (0, 0), sigma, borderType=cv2.BORDER_REFLECT)
+        ratio = obs / np.maximum(conv, 1e-4)
+        est = est * cv2.GaussianBlur(ratio, (0, 0), sigma, borderType=cv2.BORDER_REFLECT)
+        est = np.clip(est, 0.0, 1.5)
+    return est
+
+
 def sharpen_and_clarity(disp: np.ndarray, sigma_map: np.ndarray, detail: float,
                         clarity: float, scale: float, nr_strength: float,
                         weight: np.ndarray | None = None) -> np.ndarray:
@@ -218,12 +230,21 @@ def sharpen_and_clarity(disp: np.ndarray, sigma_map: np.ndarray, detail: float,
         cl = (clarity / 100.0) * 1.2 * mid * (y - base)
         y_new = y_new + (cl * weight if weight is not None else cl)
     if detail > 0:
-        radius = max(0.5, 0.9 * scale)
-        amount = (detail / 100.0) * 1.4 * min(1.0, 0.35 + 0.65 * min(scale, 1.0))
-        blur = cv2.GaussianBlur(y, (0, 0), radius, borderType=cv2.BORDER_REFLECT)
-        det = y - blur
         resid = sigma_map * (1.0 - 0.6 * min(nr_strength, 1.0))
         t = 1.5 * resid + 1e-4
+        if scale >= 0.5:
+            # Capture sharpening at 100% and in exports: Richardson-Lucy
+            # deconvolution with a small Gaussian blur model, which restores
+            # some of the softness from lens, sensor and demosaicing (it
+            # cannot fix missed focus or motion blur).
+            amount = (detail / 100.0) * 1.6
+            est = _rl_deconvolve(y, sigma=max(0.5, 0.75 * min(scale, 1.0)), iters=10)
+            det = est - y
+        else:
+            # Fit-view previews: an unsharp mask approximates the look.
+            radius = max(0.5, 0.9 * scale)
+            amount = (detail / 100.0) * 1.4 * min(1.0, 0.35 + 0.65 * min(scale, 1.0))
+            det = y - cv2.GaussianBlur(y, (0, 0), radius, borderType=cv2.BORDER_REFLECT)
         gate = np.clip((np.abs(det) - t) / t, 0.0, 1.0)
         sh = amount * gate * det
         y_new = y_new + (sh * weight if weight is not None else sh)
@@ -257,20 +278,27 @@ def render(lin: np.ndarray, eff: Effective, noise: NoiseModel, scale: float,
     d0 = np.clip(color.srgb_encode(y0), 0.0, ToneLUT.D_MAX)
     img *= lut.lookup(d0, lut.mult)[..., None]
 
-    if eff.color != 0:
-        # Vibrance: +100 roughly doubles the chroma of muted colours, while
-        # already-saturated colours (e.g. bright plumage) are raised less.
-        v = float(np.clip(eff.color, -150, 150)) / 100.0
-        y = color.luminance(img)[..., None]
-        mx = color.channel_max(img)[..., None]
-        mn = color.channel_min(img)[..., None]
-        sat = np.clip((mx - mn) / np.maximum(mx, 1e-6), 0.0, 1.0)
-        f = 1.0 + v * (1.0 - 0.7 * sat) if v > 0 else 1.0 + v * 0.8
-        img = y + (img - y) * f
-        img = np.maximum(img, 0.0)
-
-    disp = color.srgb_encode(color.gamut_map_to_srgb(img))
+    # Colour: work in OkLab so intensity changes keep each colour's hue and
+    # lightness (no blue->purple or yellow drift), then gamut-map to sRGB by
+    # reducing chroma only.
+    rgb = color.apply_matrix(img, color.PROPHOTO_TO_SRGB)
     del img
+    if eff.color != 0:
+        v = float(np.clip(eff.color, -150, 150)) / 100.0
+        lab = color.srgb_linear_to_oklab(rgb)
+        chroma = np.hypot(lab[..., 1], lab[..., 2])
+        if v > 0:
+            # Vibrance: muted colours gain most; vivid plumage (C ~ 0.2+) is
+            # raised far less, so it never turns garish.
+            f = 1.0 + v * 1.35 * np.clip(1.0 - chroma / 0.24, 0.15, 1.0)
+        else:
+            f = np.full_like(chroma, 1.0 + v * 0.8)
+        lab[..., 1] *= f
+        lab[..., 2] *= f
+        rgb = color.oklab_to_srgb_linear(lab)
+        del lab, chroma
+    disp = color.srgb_encode(color.gamut_compress_oklab(rgb))
+    del rgb
 
     nr = float(np.clip(eff.noise_reduction, 0, 150)) / 100.0
     bg = float(np.clip(eff.background_nr, 0, 150)) / 100.0 if use_mask else 0.0

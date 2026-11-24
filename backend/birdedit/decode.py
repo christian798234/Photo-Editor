@@ -29,7 +29,7 @@ DECODER_SETTINGS = {
     "rawpy_version": rawpy.__version__,
     "libraw_version": ".".join(str(x) for x in rawpy.libraw_version),
     "white_balance": "camera as-shot",
-    "demosaic": "AHD",
+    "demosaic": "DHT (full resolution); half-size for previews",
     "highlight_mode": "clip",
     "output_color": "ProPhoto (linear)",
     "auto_bright": False,
@@ -170,7 +170,9 @@ def _postprocess(raw: rawpy.RawPy, half: bool) -> np.ndarray:
         no_auto_bright=True,
         output_color=rawpy.ColorSpace.ProPhoto,
         use_camera_wb=True,
-        demosaic_algorithm=rawpy.DemosaicAlgorithm.AHD,
+        # DHT kept the most feather detail with the fewest false-colour
+        # artefacts among the fast options on real Canon R6 II files.
+        demosaic_algorithm=rawpy.DemosaicAlgorithm.DHT,
         highlight_mode=rawpy.HighlightMode.Clip,
     )
     out = rgb16.astype(np.float32)

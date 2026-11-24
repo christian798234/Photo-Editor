@@ -33,20 +33,20 @@ loading `http://127.0.0.1:<port>/`. `--ui browser` restores the browser mode.
 uvicorn bound to 127.0.0.1, opens the browser, and reports startup failures with a message box
 and a log file. The UI is a static build, so end users need no Node.js.
 
-## Image pipeline (pipeline version 1.0)
+## Image pipeline (pipeline version 1.1)
 
 | # | Stage | Domain / precision | Notes |
 |---|---|---|---|
-| 0 | **RAW decode** | LibRaw → 16-bit linear → float32 | Camera as-shot WB, LibRaw camera matrix, AHD demosaic, highlight mode *clip*, `no_auto_bright`, gamma 1.0, output **ProPhoto RGB (linear, D50)**. Half-size decode for previews; full decode for 100% view and export. |
+| 0 | **RAW decode** | LibRaw → 16-bit linear → float32 | Camera as-shot WB, LibRaw camera matrix, DHT demosaic, highlight mode *clip*, `no_auto_bright`, gamma 1.0, output **ProPhoto RGB (linear, D50)**. Half-size decode for previews; full decode for 100% view and export. |
 | 0' | JPEG/TIFF decode | 8/16-bit → float32 | ICC matrix/TRC profiles parsed and applied at full precision; LUT profiles via LittleCMS; no profile → sRGB assumed. Converted to linear ProPhoto. |
 | 1 | **White balance refinement** | linear ProPhoto | Warmth/tint gains, normalised so neutral luminance is unchanged. Auto: two-pass near-neutral pixel search, 35% damped correction, capped (±15 warmth, ±10 tint), skipped if <3% neutral pixels. Never uses another photo's WB. |
 | 2 | **Exposure + tone curve** | luminance LUT, applied as RGB ratio | Exposure (2^EV), black point, highlight shoulder (maps up to 2 EV of headroom into the top of the range), shadow lift (anchored at black), S-curve contrast. Applied to luminance and multiplied into RGB, so hue and saturation ratios are preserved. All-zero parameters = identity (clip at 1). |
-| 3 | **Color intensity** | linear ProPhoto | Vibrance: boosts low-saturation colours more than already-saturated ones; negative values desaturate. |
-| 4 | **Gamut map → linear sRGB** | float32 | LibRaw's ProPhoto↔sRGB matrix (verified to match LibRaw's own sRGB output on a real NEF). Out-of-gamut colours are desaturated toward their own luminance, not clipped per channel. |
+| 3 | **Color intensity** | OkLab | Vibrance on OkLab chroma at fixed lightness and hue: muted colours gain most, vivid plumage far less; no hue drift. |
+| 4 | **Gamut map → linear sRGB** | float32 | LibRaw's ProPhoto↔sRGB matrix (verified against LibRaw's own sRGB output on a real NEF). Out-of-gamut colours are brought into sRGB by reducing OkLab chroma only (hue and lightness kept). |
 | 5 | **sRGB transfer curve** | display-encoded float32 | |
 | 5' | **Subject weighting** (optional) | per-pixel maps | With a valid bird mask (resampled to the render region): NR strength map = 0.8·NR on the bird, NR + 1.2·background NR elsewhere; sharpening weight 1 on the bird, 0.35 on the background. See docs/BIRD_DETECTION.md. |
 | 6 | **Noise reduction** | Y/Cb/Cr on display values | Laplacian-pyramid shrinkage (non-negative garrote). Thresholds per pixel = *k* × expected noise, where expected noise = measured sensor model σ(Y) × the derivative of stages 1–5 at that pixel's brightness × resolution factor. Luma keeps 18% of the removed detail to avoid a plastic look; chroma is smoothed more strongly. |
-| 7 | **Sharpening / local contrast** | luma on display values | Unsharp mask (radius ≈ 0.9 px at 100%) gated by the residual noise level; overshoot clamped to the local 3×3 range (+0.008 bright, −0.02 dark) to prevent halos. Local contrast (Crisp look) uses an edge-aware guided filter, weighted to midtones. |
+| 7 | **Sharpening / local contrast** | luma on display values | At 100% and in exports: capture sharpening by Richardson-Lucy deconvolution (Gaussian PSF σ 0.75 px, 10 iterations); fit previews: unsharp mask approximation. Both gated by the residual noise level; overshoot clamped to the local 3×3 range (+0.008 bright, −0.02 dark) to prevent halos. Local contrast (Crisp look) uses an edge-aware guided filter, weighted to midtones. |
 | 8 | **Export** | uint16 tiles → 8/16-bit file | Tiled (1024 px + 128 px context, aligned to the pyramid grid), so memory is bounded and output matches region renders (verified < 2×10⁻⁴ difference). Optional resize in linear light. JPEG 8-bit or TIFF 16-bit, sRGB ICC embedded. |
 
 **Before** = stages 0 → 4 → 5 with all parameters zero (decoder output in sRGB). Before and After
