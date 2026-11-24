@@ -11,7 +11,7 @@ def test_limits_clamp_every_value():
     r = Recipe(strength=150, sliders=Sliders(exposure=3, color=100, shadows=100, noise_reduction=100, detail=100),
                internal=Internal(contrast=40, clarity=40, black=5))
     lim = restraint.apply_limits(r)
-    assert lim.strength == 100 and lim.sliders.exposure == 2.0 and lim.sliders.color == 25
+    assert lim.strength == 100 and lim.sliders.exposure == 2.0 and lim.sliders.color == 35
     assert lim.sliders.shadows == 40 and lim.sliders.noise_reduction == 60 and lim.sliders.detail == 50
     assert lim.internal.contrast == 20 and lim.internal.clarity == 15 and lim.internal.black == 3
     assert restraint.within_limits(lim) and not restraint.within_limits(r)
@@ -23,7 +23,7 @@ def test_edit_level():
     assert restraint.edit_level(Recipe())["level"] == "none"
     assert restraint.edit_level(Recipe(sliders=Sliders(exposure=0.3, color=8, detail=30)))["level"] == "light"
     assert restraint.edit_level(Recipe(sliders=Sliders(exposure=1.5)))["level"] == "moderate"
-    strong = restraint.edit_level(Recipe(sliders=Sliders(exposure=1.5, shadows=35, color=20)))
+    strong = restraint.edit_level(Recipe(sliders=Sliders(exposure=1.5, shadows=35), internal=Internal(contrast=19)))
     assert strong["level"] == "strong" and "processed" in strong["notes"][-1]
     over = restraint.edit_level(Recipe(strength=140, sliders=Sliders(color=60)))
     assert over["level"] == "strong" and "Beyond the natural limits" in over["notes"][0]
@@ -57,7 +57,7 @@ def test_api_enforces_limits_and_reports_level(client, tmp_path):
     wait_jobs(client)
     pid = client.get("/api/photos").json()[0]["id"]
     res = client.put(f"/api/photos/{pid}/recipe", json={"strength": 150, "sliders": {"color": 90}}).json()
-    assert res["recipe"]["strength"] == 100 and res["recipe"]["sliders"]["color"] == 25
+    assert res["recipe"]["strength"] == 100 and res["recipe"]["sliders"]["color"] == 35
     assert client.get(f"/api/photos/{pid}").json()["edit_level"]["level"] in ("light", "moderate")
     assert client.get("/api/limits").json()["enabled"] is True
     s = client.get("/api/settings").json()

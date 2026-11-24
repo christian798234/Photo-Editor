@@ -108,11 +108,12 @@ It is generated from the actual settings.
 
 The app is deliberately restrained. It aims for a photo that looks well exposed, not edited:
 
-* **Auto Edit is gentle.** Small shadow lift, little extra color and contrast, moderate noise reduction,
-  restrained sharpening. Bright scenes such as white birds or snow are only darkened slightly unless
+* **Auto Edit develops RAW files to about your camera's own look, no further.** It measures its result and
+  aims for roughly the colour and contrast of the camera's standard JPEG rendering (measured on real Canon
+  files), slightly below it. JPEG/TIFF files, already developed by the camera, only get a light touch-up. Bright scenes such as white birds or snow are only darkened slightly unless
   highlights are actually clipping.
 * **Keep edits natural** (Advanced panel, **on by default**) caps every adjustment, manual or automatic, at a
-  natural range (e.g. color intensity +25, contrast ±20, local contrast 15, strength 100%). The cap is enforced
+  natural range (e.g. color intensity +35, contrast ±20, local contrast 15, strength 100%). The cap is enforced
   for exports too. Turning it off asks you to confirm first.
 * **Natural texture:** noise reduction always keeps part of the fine grain, avoiding the smooth "plastic"
   look typical of over-processed or AI-generated images.

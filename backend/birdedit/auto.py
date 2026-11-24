@@ -16,7 +16,59 @@ from .noise import NoiseModel
 from .pipeline import build_tone_lut, tone_display
 from .recipe import Effective, Internal, Recipe, Sliders, Subject, effective
 
-TARGET_KEY = 0.15          # linear centre-weighted log-average target
+TARGET_KEY = 0.18          # linear centre-weighted log-average target
+
+# "Development" targets for RAW files, relative to the unedited baseline.
+# Calibrated against camera JPEGs (Canon R6 II standard picture style: about
+# 1.25x the baseline saturation and 1.4-1.5x its tonal range). JPEG/TIFF input
+# has already been developed by the camera, so it only gets a light touch.
+RAW_TARGETS = {"sat": 1.25, "range": 1.42, "sat_cap": 0.40, "range_cap": 0.74}
+RENDERED_TARGETS = {"sat": 1.06, "range": 1.05, "sat_cap": 0.40, "range_cap": 0.74}
+
+
+def _display_stats(disp: np.ndarray) -> tuple[float, float]:
+    """(mean saturation of mid-tones, 5-95% luminance range) of display RGB."""
+    y = 0.2126 * disp[..., 0] + 0.7152 * disp[..., 1] + 0.0722 * disp[..., 2]
+    mx, mn = disp.max(axis=2), disp.min(axis=2)
+    sat = (mx - mn) / np.maximum(mx, 1e-3)
+    mid = (y > 0.1) & (y < 0.95)
+    s = float(sat[mid].mean()) if mid.any() else float(sat.mean())
+    lo, hi = np.percentile(y, [5, 95])
+    return s, float(hi - lo)
+
+
+def _calibrate(small: np.ndarray, recipe: Recipe, nm: NoiseModel, targets: dict,
+               crisp: bool) -> tuple[float, float, dict]:
+    """Adjust colour intensity and contrast so the result reaches the
+    development targets. Few cheap renders of a small image, tone/colour only."""
+    from .pipeline import render
+    base = render(small, effective(Recipe()), nm, 1.0)
+    s0, r0 = _display_stats(base)
+    want_s = min(targets["sat_cap"], max(s0, s0 * targets["sat"]))
+    want_r = min(targets["range_cap"], max(r0, r0 * targets["range"]))
+    if crisp:
+        want_s, want_r = min(targets["sat_cap"], want_s * 1.06), min(targets["range_cap"], want_r * 1.04)
+    col, con = recipe.sliders.color, recipe.internal.contrast
+    col0, con0 = col, con          # development only ever adds colour/contrast
+
+    def measure(c, k):
+        r = recipe.model_copy(update={
+            "sliders": recipe.sliders.model_copy(update={"color": c, "noise_reduction": 0, "detail": 0}),
+            "internal": recipe.internal.model_copy(update={"contrast": k, "clarity": 0})})
+        return _display_stats(render(small, effective(r), nm, 1.0))
+
+    for _ in range(4):
+        s1, r1 = measure(col, con)
+        if abs(s1 - want_s) < 0.006 and abs(r1 - want_r) < 0.01:
+            break
+        # Empirical sensitivities: ~0.0025 saturation per colour step,
+        # ~0.006 range per contrast step (both re-measured each round).
+        col = float(np.clip(col + (want_s - s1) / 0.004, col0, 35))
+        con = float(np.clip(con + (want_r - r1) / 0.006, con0, 20))
+    s1, r1 = measure(col, con)
+    return round(col), round(con, 1), {"baseline_sat": round(s0, 3), "baseline_range": round(r0, 3),
+                                        "target_sat": round(want_s, 3), "target_range": round(want_r, 3),
+                                        "result_sat": round(s1, 3), "result_range": round(r1, 3)}
 
 
 def _small(lin: np.ndarray, edge: int = 640) -> np.ndarray:
@@ -53,7 +105,8 @@ BACKGROUND_NR = {"natural": 20.0, "crisp": 12.0, "soft_background": 45.0}
 
 def analyze_and_build(lin_preview: np.ndarray, noise: NoiseModel, look: str = "natural",
                       noise_render_scale: float = 1.0,
-                      mask: np.ndarray | None = None) -> tuple[Recipe, dict]:
+                      mask: np.ndarray | None = None,
+                      rendered_source: bool = False) -> tuple[Recipe, dict]:
     """Return (auto recipe, analysis facts used by the summary).
 
     ``mask``: a validated bird mask (uint8, preview size) or None. With a mask,
@@ -100,8 +153,10 @@ def analyze_and_build(lin_preview: np.ndarray, noise: NoiseModel, look: str = "n
         if frac_neutral > 0.03:
             c_r = -float(np.median(lr[neutral]))
             c_b = -float(np.median(lb[neutral]))
-            warmth = float(np.clip(0.35 * (c_r - c_b) * 100.0, -15, 15))
-            tint = float(np.clip(0.35 * ((c_r + c_b) / 2.0) / 0.3 * 100.0, -10, 10))
+            # Gentle: shade and golden light are part of the scene, so only a
+            # fifth of any measured cast is corrected, capped at small values.
+            warmth = float(np.clip(0.2 * (c_r - c_b) * 100.0, -8, 8))
+            tint = float(np.clip(0.2 * ((c_r + c_b) / 2.0) / 0.3 * 100.0, -6, 6))
             if abs(warmth) < 2:
                 warmth = 0.0
             if abs(tint) < 2:
@@ -172,12 +227,13 @@ def analyze_and_build(lin_preview: np.ndarray, noise: NoiseModel, look: str = "n
     facts["noise_sigma_display"] = sigma_disp
     facts["noise_method"] = noise.method
     nr = float(np.clip(15 + sigma_disp * 3500, 15, 55))
-    detail = float(np.clip(35 - sigma_disp * 2500, 15, 35))
-    clarity = 0.0
+    # RAW needs the sharpening a camera applies to its JPEGs; JPEGs already have it.
+    detail = float(np.clip((44 if not rendered_source else 30) - sigma_disp * 2500, 15, 44))
+    clarity = 0.0 if rendered_source else 5.0
     if crisp:
         nr *= 0.85
-        detail = min(40.0, detail + 10)
-        clarity = 8.0
+        detail = min(50.0, detail + 6)
+        clarity = 10.0
 
     recipe = Recipe(
         look=look,
@@ -191,6 +247,16 @@ def analyze_and_build(lin_preview: np.ndarray, noise: NoiseModel, look: str = "n
                         background_nr=BACKGROUND_NR[look] if mask is not None else 0.0),
         auto_applied=True,
     )
+    # Development: reach camera-like colour and contrast (RAW) or a light
+    # touch-up (JPEG/TIFF), measured on the actual result.
+    targets = RENDERED_TARGETS if rendered_source else RAW_TARGETS
+    small = _small(lin_preview, 512)
+    col, con, cal = _calibrate(small, recipe, noise, targets, crisp)
+    recipe = recipe.model_copy(update={
+        "sliders": recipe.sliders.model_copy(update={"color": col}),
+        "internal": recipe.internal.model_copy(update={"contrast": con})})
+    facts["development"] = cal
+    facts["rendered_source"] = rendered_source
     return recipe, facts
 
 

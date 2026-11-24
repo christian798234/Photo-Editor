@@ -127,7 +127,7 @@ def test_auto_white_balance_is_damped():
     img[..., 0] *= 1.10       # warm cast on neutral content
     img[..., 2] *= 0.90
     r, _ = auto.analyze_and_build(img, NM)
-    assert -15 <= r.sliders.warmth < 0       # corrects toward neutral, but only partly
+    assert -8 <= r.sliders.warmth < 0        # corrects toward neutral, but only partly
 
 
 def test_auto_protects_clipped_highlights_and_reports_them():

@@ -329,7 +329,8 @@ class Processor:
                 except Exception:
                     log.exception("bird detection failed; using global editing")
         mask = self.usable_mask(photo_id) if self.subject_enabled() else None
-        recipe, facts = auto.analyze_and_build(prev, nm, look, noise_render_scale=1.0, mask=mask)
+        recipe, facts = auto.analyze_and_build(prev, nm, look, noise_render_scale=1.0, mask=mask,
+                                               rendered_source=rec.get("kind") == "raster")
         recipe = self.limit(recipe.model_copy(update={"crop": old.crop}))
         self.store.put_facts(photo_id, facts)
         self.store.put_recipe(photo_id, recipe)

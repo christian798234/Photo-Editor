@@ -258,12 +258,14 @@ def render(lin: np.ndarray, eff: Effective, noise: NoiseModel, scale: float,
     img *= lut.lookup(d0, lut.mult)[..., None]
 
     if eff.color != 0:
-        v = float(np.clip(eff.color, -150, 150)) / 100.0 * 0.5
+        # Vibrance: +100 roughly doubles the chroma of muted colours, while
+        # already-saturated colours (e.g. bright plumage) are raised less.
+        v = float(np.clip(eff.color, -150, 150)) / 100.0
         y = color.luminance(img)[..., None]
         mx = color.channel_max(img)[..., None]
         mn = color.channel_min(img)[..., None]
         sat = np.clip((mx - mn) / np.maximum(mx, 1e-6), 0.0, 1.0)
-        f = 1.0 + v * (1.0 - sat) ** 2 if v > 0 else 1.0 + v * 1.6
+        f = 1.0 + v * (1.0 - 0.7 * sat) if v > 0 else 1.0 + v * 0.8
         img = y + (img - y) * f
         img = np.maximum(img, 0.0)
 

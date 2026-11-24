@@ -22,7 +22,7 @@ NATURAL_LIMITS: dict[str, tuple[float, float]] = {
     "warmth": (-40, 40),
     "highlights": (-70, 30),
     "shadows": (-40, 40),
-    "color": (-50, 25),
+    "color": (-50, 35),
     "noise_reduction": (0, 60),
     "detail": (0, 50),
     "tint": (-30, 30),
@@ -33,9 +33,11 @@ NATURAL_LIMITS: dict[str, tuple[float, float]] = {
 }
 
 # Beyond these effective values an adjustment counts as "noticeable".
+# Calibrated so that a camera-like RAW development (what the camera itself
+# does for its JPEGs) still counts as a light edit.
 NOTICEABLE: dict[str, float] = {
-    "exposure": 1.0, "warmth": 20, "tint": 15, "highlights": 50, "shadows": 25, "color": 15,
-    "contrast": 14, "black": 2, "clarity": 8, "noise_reduction": 45, "detail": 40, "background_nr": 45,
+    "exposure": 1.0, "warmth": 20, "tint": 15, "highlights": 50, "shadows": 25, "color": 36,
+    "contrast": 18, "black": 2, "clarity": 10, "noise_reduction": 45, "detail": 46, "background_nr": 45,
 }
 
 LABELS = {
