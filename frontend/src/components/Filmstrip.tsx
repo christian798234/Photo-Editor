@@ -36,7 +36,7 @@ export function Filmstrip({ photos, currentId, selected, onSelect, onRemove }: P
             title={`${p.original_name}\n${p.metadata?.camera?.display_name ?? ""}`}>
             {hasThumb ? <img src={imageUrl(p.id, "thumb.jpg", `${p.status}-${p.preview_kind}`)} alt="" loading="lazy" />
               : <div className="thumb-placeholder">{p.original_name.split(".").pop()?.toUpperCase()}</div>}
-            <span className={`thumb-status ${st.cls}`}>{st.text}</span>
+            <span className={`thumb-status ${st.cls}`}><i aria-hidden="true" />{st.text}</span>
             <span className="thumb-name">{p.original_name}</span>
             <button className="thumb-remove" aria-label={`Remove ${p.original_name} from project`}
               onClick={(e) => { e.stopPropagation(); onRemove(p.id); }}>×</button>

@@ -8,9 +8,9 @@ export function JobsBar({ jobs }: { jobs: Job[] }) {
     <div className="jobs-bar" role="status" aria-live="polite">
       {active.map((j) => (
         <div key={j.id} className="job">
-          <span>{j.title}: {j.done} of {j.total}{j.message ? ` (${j.message})` : ""}</span>
+          <span className="job-text">{j.title}: {j.done} of {j.total}{j.message ? ` (${j.message})` : ""}</span>
           <progress max={j.total} value={j.done + j.item_progress} />
-          <button onClick={() => api.cancelJob(j.id)} aria-label={`Cancel ${j.title}`}>Cancel</button>
+          <button className="btn small ghost" onClick={() => api.cancelJob(j.id)} aria-label={`Cancel ${j.title}`}>Cancel</button>
         </div>
       ))}
     </div>

@@ -74,7 +74,7 @@ export function ExportDialog({ photos, selected, currentId, jobs, onClose, onSta
             <div className="row">
               <input className="grow" type="text" aria-label="Export folder" placeholder="C:\Users\you\Pictures\Edited birds"
                 value={s.export_folder} onChange={(e) => setS({ ...s, export_folder: e.target.value })} />
-              <button onClick={choose}>Choose…</button>
+              <button className="btn" onClick={choose}>Choose…</button>
             </div>
           </fieldset>
           <fieldset>
@@ -94,8 +94,8 @@ export function ExportDialog({ photos, selected, currentId, jobs, onClose, onSta
             and existing files are never overwritten: a number is added to the name instead.</p>
           {error && <p className="error-text" role="alert">{error}</p>}
           <div className="row end">
-            <button onClick={() => ref.current?.close()}>Cancel</button>
-            <button className="primary" disabled={!ids.length || !s.export_folder} onClick={start}>Export {ids.length} photo{ids.length === 1 ? "" : "s"}</button>
+            <button className="btn ghost" onClick={() => ref.current?.close()}>Cancel</button>
+            <button className="btn primary" disabled={!ids.length || !s.export_folder} onClick={start}>Export {ids.length} photo{ids.length === 1 ? "" : "s"}</button>
           </div>
         </>
       ) : (
@@ -107,11 +107,11 @@ export function ExportDialog({ photos, selected, currentId, jobs, onClose, onSta
             {job.results.map((r, i) => <li key={i} className={r.ok ? "ok" : "fail"}>{r.ok ? "✓" : "✗"} {r.message}</li>)}
           </ul>
           <div className="row end">
-            {(job.status === "running" || job.status === "queued") && <button onClick={() => api.cancelJob(job.id)}>Cancel export</button>}
+            {(job.status === "running" || job.status === "queued") && <button className="btn" onClick={() => api.cancelJob(job.id)}>Cancel export</button>}
             {job.status === "done" && /Win/.test(navigator.userAgent) && (
-              <button onClick={() => api.openFolder(s.export_folder).catch((e) => setError(e.message))}>Open folder</button>
+              <button className="btn" onClick={() => api.openFolder(s.export_folder).catch((e) => setError(e.message))}>Open folder</button>
             )}
-            <button className="primary" onClick={() => ref.current?.close()}>Close</button>
+            <button className="btn primary" onClick={() => ref.current?.close()}>Close</button>
           </div>
           {error && <p className="error-text">{error}</p>}
         </>

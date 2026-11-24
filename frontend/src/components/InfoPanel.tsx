@@ -1,98 +1,95 @@
 import { api } from "../api";
+import { IconAlert, IconCamera, IconCheck } from "../icons";
 import type { Photo } from "../types";
-
-function Row({ k, v }: { k: string; v?: string | number | null }) {
-  if (v === undefined || v === null || v === "") return null;
-  return (<><dt>{k}</dt><dd>{v}</dd></>);
-}
+import { InfoTip, Section } from "../ui";
 
 export function InfoPanel({ photo, onLocate, onRetry, dngConverter, onUseConverter }: {
   photo: Photo; onLocate: () => void; onRetry: () => void; dngConverter: boolean; onUseConverter: () => void }) {
   const md = photo.metadata;
   const cam = md?.camera;
+  const isRaw = photo.kind === "raw";
+  const ok = photo.decode_status === "supported";
   const decodeText: Record<Photo["decode_status"], string> = {
-    pending: "Not decoded yet",
-    supported: "Decoded successfully",
-    unsupported: "Not supported by the installed decoder",
+    pending: "Reading photo…",
+    supported: photo.converted_dng ? "Decoded via Adobe DNG Converter" : "Decoded",
+    unsupported: "Not supported by the built-in decoder",
     failed: "Could not be decoded",
     needs_converter: "Needs Adobe DNG Converter",
   };
-  const isRaw = photo.kind === "raw";
+  const exposure = [md?.iso ? `ISO ${md.iso}` : "", md?.shutter_display ?? "", md?.f_number ? `f/${md.f_number}` : "",
+    md?.focal_length ? `${md.focal_length} mm` : ""].filter(Boolean);
+  const getConverter = () => api.openHelp("dng_converter").catch(() => {});
+
   return (
-    <div className="info-panel">
-      <h3 className="camera-name">{cam?.identified ? cam.display_name : md ? "Unknown camera" : "Reading…"}</h3>
-      {cam?.identified && (cam.make_raw || cam.model_raw) && (
-        <div className="small muted" title="Exact values stored in the file">
-          From file: “{cam.make_raw}” / “{cam.model_raw}” ({cam.source})
+    <Section id="photo" title="Photo" icon={<IconCamera size={16} />}>
+      <div className="camera-card">
+        <div className="camera-line">
+          <span className="camera-name">{cam?.identified ? cam.display_name : md ? "Unknown camera" : "Reading…"}</span>
+          {cam?.identified && (cam.make_raw || cam.model_raw) && (
+            <InfoTip text={`Exactly as stored in the file: “${cam.make_raw}” / “${cam.model_raw}” (${cam.source}).`} />
+          )}
         </div>
-      )}
-      <dl>
-        <Row k="File" v={photo.original_name} />
-        <Row k="Type" v={photo.format_label ? `${photo.format_label}${isRaw ? " RAW" : ""}` : undefined} />
-        <Row k="Lens" v={md?.lens} />
-        <Row k="ISO" v={md?.iso ?? undefined} />
-        <Row k="Shutter" v={md?.shutter_display} />
-        <Row k="Aperture" v={md?.f_number ? `f/${md.f_number}` : undefined} />
-        <Row k="Focal length" v={md?.focal_length ? `${md.focal_length} mm` : undefined} />
-        <Row k="Taken" v={md?.datetime_original} />
-        <Row k="Dimensions" v={photo.full_size ? `${photo.full_size[0]} × ${photo.full_size[1]} px` : undefined} />
-        <Row k="Location" v={md?.has_gps ? "GPS present (removed on export unless you keep it)" : undefined} />
-        <dt>Decoding</dt>
-        <dd className={`decode-${photo.decode_status}`}>{decodeText[photo.decode_status]}</dd>
-      </dl>
-      {photo.format_note && <p className="small warn">{photo.format_note}</p>}
-      {photo.decode_error && <p className="error-text" role="alert">{photo.decode_error}</p>}
-      {photo.profile_warning && (
-        <div className="profile-warning" role="alert">
-          <p className="small warn">{photo.profile_warning}</p>
-          <div className="row">
-            <button onClick={() => api.openHelp("dng_converter").catch(() => {})}>Get Adobe DNG Converter (free)</button>
-            <button className="primary" onClick={onRetry}>Try again</button>
+        {md?.lens && <div className="lens-line">{md.lens}</div>}
+        {exposure.length > 0 && (
+          <div className="exif-pills">{exposure.map((e) => <span key={e} className="pill">{e}</span>)}</div>
+        )}
+        <dl className="meta-grid">
+          <dt>File</dt><dd title={photo.original_name}>{photo.original_name}</dd>
+          {photo.format_label && (<><dt>Type</dt><dd>{photo.format_label}{isRaw ? " RAW" : ""}</dd></>)}
+          {photo.full_size && (<><dt>Size</dt><dd>{photo.full_size[0]} × {photo.full_size[1]} px</dd></>)}
+          {md?.datetime_original && (<><dt>Taken</dt><dd>{md.datetime_original.replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3")}</dd></>)}
+          {md?.has_gps && (<><dt>Location</dt><dd>GPS (removed on export unless kept)</dd></>)}
+        </dl>
+        <div className={`decode-status ${ok ? "ok" : photo.decode_status === "pending" ? "busy" : "bad"}`}>
+          {ok ? <IconCheck size={14} /> : photo.decode_status === "pending" ? null : <IconAlert size={14} />}
+          <span>{decodeText[photo.decode_status]}</span>
+        </div>
+      </div>
+
+      {photo.format_note && <p className="note warn">{photo.format_note}</p>}
+      {photo.decode_error && <p className="note error" role="alert">{photo.decode_error}</p>}
+      {(photo.profile_warning || photo.decode_status === "needs_converter") && (
+        <div className="callout warn" role="alert">
+          {photo.profile_warning && <p>{photo.profile_warning}</p>}
+          <div className="btn-row">
+            <button className="btn" onClick={getConverter}>Get Adobe DNG Converter</button>
+            <button className="btn primary" onClick={onRetry}>Try again</button>
           </div>
         </div>
       )}
-      {photo.decode_status === "needs_converter" && (
-        <div className="row">
-          <button onClick={() => api.openHelp("dng_converter").catch(() => {})}>Get Adobe DNG Converter (free)</button>
-          <button className="primary" onClick={onRetry}>Try again</button>
-        </div>
-      )}
-      {photo.kind === "raw" && !photo.converted_dng && photo.decode_status === "supported" && !photo.profile_warning && (
-        <div className="converter-hint">
-          <p className="small">Colors or edges look wrong (e.g. a very new camera)?</p>
+      {isRaw && !photo.converted_dng && ok && !photo.profile_warning && (
+        <div className="callout subtle">
+          <p>Colors or edges look wrong (e.g. a very new camera)?</p>
           {dngConverter
-            ? <button onClick={onUseConverter}>Use Adobe DNG Converter for this photo</button>
-            : <button onClick={() => api.openHelp("dng_converter").catch(() => {})}>Get Adobe DNG Converter (free)</button>}
+            ? <button className="btn" onClick={onUseConverter}>Use Adobe DNG Converter</button>
+            : <button className="btn" onClick={getConverter}>Get Adobe DNG Converter</button>}
         </div>
       )}
-      {photo.converted_dng && (
-        <p className="small muted">Decoded via Adobe DNG Converter{photo.high_efficiency ? " (Nikon High Efficiency NEF)" : ""}.
-          Your original file is unchanged.</p>
-      )}
-      {photo.decode_detail && <details className="small muted"><summary>Technical detail</summary>{photo.decode_detail}</details>}
+      {photo.decode_detail && <details className="details"><summary>Technical detail</summary><code>{photo.decode_detail}</code></details>}
       {photo.preview_kind === "embedded" && photo.decode_status === "pending" && (
-        <p className="small warn">Showing the camera's embedded JPEG until the RAW rendering is ready. Edits always use the RAW data.</p>
+        <p className="note">Showing the camera's preview until the RAW is ready. Edits always use the RAW data.</p>
       )}
       {!photo.source_available && (
-        <div className="missing" role="alert">
-          <p><strong>Original file not found</strong> at:<br /><span className="path">{photo.source.path}</span></p>
-          <p className="small">Your edits are kept. Point to the file's new location to export or view at 100% again.</p>
-          <button onClick={onLocate}>Locate original…</button>
+        <div className="callout error" role="alert">
+          <p><strong>Original file not found</strong><br /><span className="path">{photo.source.path}</span></p>
+          <p>Your edits are kept. Point to the file's new location to export or view at 100%.</p>
+          <button className="btn primary" onClick={onLocate}>Locate original…</button>
         </div>
       )}
-      {photo.source_available && (photo.decode_status === "failed" || photo.decode_status === "unsupported") && (
-        <button onClick={onRetry}>Try again</button>
-      )}
-      {photo.source_available && photo.decode_status === "supported" && (
-        <button className="ghost small-btn" onClick={onRetry}
-          title="Open this photo again from the original file (your edits are kept)">Reload photo</button>
-      )}
+      <div className="btn-row">
+        {photo.source_available && (photo.decode_status === "failed" || photo.decode_status === "unsupported") && (
+          <button className="btn" onClick={onRetry}>Try again</button>
+        )}
+        {photo.source_available && ok && (
+          <button className="btn ghost small" onClick={onRetry} title="Open this photo again from the original file (edits are kept)">Reload photo</button>
+        )}
+      </div>
       {photo.source_available && (
-        <details className="small muted"><summary>Original location</summary>
+        <details className="details"><summary>Original location</summary>
           <span className="path">{photo.source.path}</span>
-          {photo.source.kind === "imported_copy" && <div>(a copy of a file dragged into the browser)</div>}
+          {photo.source.kind === "imported_copy" && <div className="muted">(a copy of a file dragged into the browser)</div>}
         </details>
       )}
-    </div>
+    </Section>
   );
 }

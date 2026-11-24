@@ -5,6 +5,7 @@ import { BASELINE } from "../types";
 import { useDevicePixelRatio, useElementSize, useRenderedImage } from "../useRender";
 import { CropOverlay } from "./CropOverlay";
 import { MaskLayer } from "./MaskLayer";
+import { IconAlert, IconImport } from "../icons";
 
 export type Compare = "after" | "before" | "slider" | "side";
 export type Zoom = "fit" | "100";
@@ -22,6 +23,7 @@ interface Props {
   maskVersion: string;
   maskShape: [number, number] | null;
   onSelectClick: (x: number, y: number) => void;
+  onImport?: () => void;
 }
 
 
@@ -134,7 +136,7 @@ function ZoomPane(props: { photo: Photo; recipe: Recipe; before: boolean; pan: {
 /* --------------------------------------------------------------- viewer */
 
 export function Viewer({ photo, recipe, compare, zoom, setZoom, cropDraft, setCropDraft, showMask, selecting,
-  maskVersion, maskShape, onSelectClick }: Props) {
+  maskVersion, maskShape, onSelectClick, onImport }: Props) {
   const [boxRef, box] = useElementSize<HTMLDivElement>();
   const [split, setSplit] = useState(0.5);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -166,9 +168,14 @@ export function Viewer({ photo, recipe, compare, zoom, setZoom, cropDraft, setCr
     return (
       <div className="viewer empty" ref={boxRef}>
         <div className="empty-state">
-          <h2>Import your bird photos to begin</h2>
-          <p>Click <strong>Import Photos</strong>, or drag RAW (NEF, ARW, …), JPEG or TIFF files onto this window.</p>
-          <p className="muted">Your originals are never changed. Everything stays on this computer.</p>
+          <div className="empty-icon"><IconImport size={30} /></div>
+          <h2>Import your bird photos</h2>
+          <p>Drag RAW, JPEG or TIFF files here, or choose them from a folder.</p>
+          {onImport && <button className="btn primary large" onClick={onImport}><IconImport />Import photos</button>}
+          <div className="format-row" aria-label="Supported formats">
+            {["NEF", "ARW", "CR3", "CR2", "RAF", "ORF", "RW2", "DNG", "JPEG", "TIFF"].map((f) => <span key={f} className="pill">{f}</span>)}
+          </div>
+          <p className="muted small">Originals are never changed. Everything stays on this computer.</p>
         </div>
       </div>
     );
@@ -178,6 +185,7 @@ export function Viewer({ photo, recipe, compare, zoom, setZoom, cropDraft, setCr
     return (
       <div className="viewer" ref={boxRef}>
         <div className="empty-state error-state" role="alert">
+          <div className="empty-icon bad"><IconAlert size={28} /></div>
           <h2>This photo can't be displayed</h2>
           <p><strong>Camera:</strong> {photo.metadata?.camera?.display_name ?? "Unknown camera"}</p>
           <p>{photo.decode_error}</p>

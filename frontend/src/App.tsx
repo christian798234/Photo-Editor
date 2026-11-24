@@ -5,6 +5,11 @@ import { BirdPanel, type SelectTool } from "./components/BirdPanel";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { describeChange } from "./history";
 import { useMediaQuery } from "./useRender";
+import {
+  IconAlert, IconBefore, IconBird, IconCheck, IconCopy, IconExport, IconFit, IconFolder, IconImage, IconImport,
+  IconPanel, IconPaste, IconRedo, IconRevert, IconSide, IconSplit, IconStack, IconUndo, IconWand, IconX, IconZoom,
+} from "./icons";
+import { IconButton } from "./ui";
 import { ExportDialog } from "./components/ExportDialog";
 import { Filmstrip } from "./components/Filmstrip";
 import { InfoPanel } from "./components/InfoPanel";
@@ -457,33 +462,42 @@ export function App() {
   const canRedo = !!h && h.index < h.entries.length - 1;
   const lastAuto = h ? [...h.entries.slice(0, h.index + 1)].reverse().find((e) => e.label.startsWith("Auto Edit"))?.recipe ?? null : null;
   const ready = photo?.decode_status === "supported";
-  const anyEdited = photos.some((p) => p.recipe.auto_applied);
-  const step = !photos.length ? 1 : !anyEdited ? 2 : 3;
+
+  const cameraName = photo?.metadata?.camera?.identified ? photo.metadata.camera.display_name : "";
+  const levelText = editLevel && editLevel.level !== "none"
+    ? (editLevel.level === "light" ? "Light edit" : editLevel.level === "moderate" ? "Moderate edit" : "Strong edit") : "";
+  const viewModes = [
+    ["after", "After", <IconImage key="a" />], ["before", "Before (unedited)", <IconBefore key="b" />],
+    ["slider", "Before/After slider", <IconSplit key="s" />], ["side", "Side by side", <IconSide key="d" />],
+  ] as const;
 
   return (
     <div className={`app ${dragOver ? "drag-over" : ""}`}>
       <header className="topbar">
-        <div className="brand" title={version ? `Bird Photo Editor ${version}` : undefined}><span className="long">Bird Photo Editor</span><span className="short">Bird Editor</span></div>
-        <ol className="steps" aria-label="Workflow">
-          {["Import Photos", "Auto Edit", "Review", "Export"].map((s, i) => (
-            <li key={s} className={i + 1 === step ? "current" : i + 1 < step ? "done" : ""}>{i + 1}. {s}</li>
-          ))}
-        </ol>
+        <div className="brand" title={version ? `Bird Photo Editor ${version}` : undefined}>
+          <span className="logo" aria-hidden="true"><IconBird size={18} /></span>
+          <span className="long">Bird Photo Editor</span>
+        </div>
+        <div className="doc-title" aria-live="polite">
+          {photo && <><span className="doc-name">{photo.original_name}</span>{cameraName && <span className="doc-cam">{cameraName}</span>}</>}
+        </div>
         <div className="actions">
-          <button onClick={importDialog} title="Import Photos: choose RAW, JPEG or TIFF files">
-            <span className="long">Import Photos</span><span className="short">Import</span></button>
+          <button className="btn" onClick={importDialog} title="Import photos (RAW, JPEG, TIFF)">
+            <IconImport /><span className="label">Import</span></button>
           {shell === "browser" && (
-            <button className="ghost" onClick={() => fileInput.current?.click()} title="Copy files in through the browser">Upload copies…</button>
+            <button className="btn ghost" onClick={() => fileInput.current?.click()} title="Copy files in through the browser">
+              <span className="label">Upload copies</span></button>
           )}
           <input ref={fileInput} type="file" multiple hidden
             accept=".nef,.nrw,.arw,.srf,.sr2,.cr2,.cr3,.raf,.orf,.rw2,.dng,.pef,.srw,.jpg,.jpeg,.tif,.tiff"
             onChange={(e) => { uploadFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
-          <button className="primary" disabled={!ready || busy} onClick={() => autoEdit(recipe.look === "crisp" ? "crisp" : "natural")}>
-            {busy ? "Editing…" : "Auto Edit"}
-          </button>
-          <button disabled={!photos.some((p) => p.decode_status === "supported")} onClick={autoAll} title="Auto Edit All">
-            <span className="long">Auto Edit All</span><span className="short">Edit all</span></button>
-          <button disabled={!photos.some((p) => p.decode_status === "supported")} onClick={() => setShowExport(true)}>Export…</button>
+          <button className="btn ghost" disabled={!photos.some((p) => p.decode_status === "supported")} onClick={autoAll}
+            title="Auto Edit every photo"><IconStack /><span className="label">Auto Edit All</span></button>
+          <button className="btn primary" disabled={!ready || busy} onClick={() => autoEdit(recipe.look === "crisp" ? "crisp" : "natural")}
+            title="Auto Edit this photo"><IconWand /><span className="label">{busy ? "Editing…" : "Auto Edit"}</span></button>
+          <span className="divider" aria-hidden="true" />
+          <button className="btn" disabled={!photos.some((p) => p.decode_status === "supported")} onClick={() => setShowExport(true)}
+            title="Export finished photos"><IconExport /><span className="label">Export</span></button>
         </div>
       </header>
 
@@ -491,61 +505,57 @@ export function App() {
 
       <main className={`workspace ${narrow ? "narrow" : ""} ${narrow && panelOpen ? "panel-open" : ""}`}>
         <section className="center">
-          <div className="view-toolbar" role="toolbar" aria-label="View options">
-            <div className="seg" role="radiogroup" aria-label="Compare">
-              {([["after", "After", "After"], ["before", "Before", "Before"], ["slider", "Before/After slider", "Slider"],
-                ["side", "Side by side", "Side"]] as const).map(([v, l, sh]) => (
-                <button key={v} role="radio" aria-checked={compare === v} className={compare === v ? "active" : ""}
-                  onClick={() => setCompare(v)} disabled={!!cropDraft} title={l}>
-                  <span className="long">{l}</span><span className="short">{sh}</span>
-                </button>
-              ))}
-            </div>
-            <div className="seg" role="radiogroup" aria-label="Zoom">
-              <button role="radio" aria-checked={zoom === "fit"} className={zoom === "fit" ? "active" : ""} onClick={() => setZoom("fit")}>Fit</button>
-              <button role="radio" aria-checked={zoom === "100"} className={zoom === "100" ? "active" : ""} disabled={!ready || !!cropDraft}
-                onClick={() => setZoom("100")}>100%</button>
-            </div>
-            <div className="seg">
-              <button onClick={() => undoRedo(-1)} disabled={!canUndo} title="Undo (Ctrl+Z)">Undo</button>
-              <button onClick={() => undoRedo(1)} disabled={!canRedo} title="Redo (Ctrl+Y)">Redo</button>
-              <button onClick={() => setNow({ ...BASELINE }, "Revert to original")} disabled={!ready}
-                title="Revert to original: back to the unedited baseline rendering (can be undone)">
-                <span className="long">Revert to original</span><span className="short">Revert</span></button>
-            </div>
-            <div className="seg">
-              <button onClick={copySettings} disabled={!ready} title="Copy settings">
-                <span className="long">Copy settings</span><span className="short">Copy</span></button>
-              <button onClick={pasteSettings} disabled={!clip || !ready}
-                title={selected.size > 1 ? `Paste settings to ${selected.size} selected photos` : "Paste settings to this photo"}>
-                <span className="long">Paste settings</span><span className="short">Paste</span>{selected.size > 1 ? ` (${selected.size})` : ""}
-              </button>
-            </div>
-            {narrow && (
-              <button className={`panel-toggle ${panelOpen ? "active" : ""}`} aria-expanded={panelOpen}
-                onClick={() => setPanelOpen((o) => !o)}>{panelOpen ? "Hide panel" : "Adjust ▸"}</button>
+          <div className="stage">
+            <Viewer photo={photo} recipe={recipe} compare={compare} zoom={zoom} setZoom={setZoom}
+              cropDraft={cropDraft} setCropDraft={setCropDraft}
+              showMask={showMask && !!photo?.mask?.has_mask} selecting={tool !== "off"} maskVersion={maskVersion}
+              maskShape={photo?.mask?.shape ?? null} onSelectClick={selectClick} onImport={importDialog} />
+            {photo && (
+              <div className="viewbar" role="toolbar" aria-label="View options">
+                <div className="vb-group" role="radiogroup" aria-label="Compare">
+                  {viewModes.map(([v, l, icon]) => (
+                    <IconButton key={v} label={l} role="radio" aria-checked={compare === v} active={compare === v}
+                      onClick={() => setCompare(v)} disabled={!!cropDraft}>{icon}</IconButton>
+                  ))}
+                </div>
+                <div className="vb-group" role="radiogroup" aria-label="Zoom">
+                  <IconButton label="Fit to window" role="radio" aria-checked={zoom === "fit"} active={zoom === "fit"}
+                    onClick={() => setZoom("fit")}><IconFit /></IconButton>
+                  <IconButton label="100% (actual pixels)" role="radio" aria-checked={zoom === "100"} active={zoom === "100"}
+                    disabled={!ready || !!cropDraft} onClick={() => setZoom("100")}><IconZoom /></IconButton>
+                </div>
+                <div className="vb-group">
+                  <IconButton label="Undo (Ctrl+Z)" onClick={() => undoRedo(-1)} disabled={!canUndo}><IconUndo /></IconButton>
+                  <IconButton label="Redo (Ctrl+Y)" onClick={() => undoRedo(1)} disabled={!canRedo}><IconRedo /></IconButton>
+                  <IconButton label="Revert to original (can be undone)" onClick={() => setNow({ ...BASELINE }, "Revert to original")}
+                    disabled={!ready}><IconRevert /></IconButton>
+                </div>
+                <div className="vb-group">
+                  <IconButton label="Copy settings" onClick={copySettings} disabled={!ready}><IconCopy /></IconButton>
+                  <IconButton label={selected.size > 1 ? `Paste settings to ${selected.size} selected photos` : "Paste settings"}
+                    onClick={pasteSettings} disabled={!clip || !ready}><IconPaste /></IconButton>
+                </div>
+                {narrow && (
+                  <div className="vb-group">
+                    <IconButton label={panelOpen ? "Hide adjustments" : "Show adjustments"} active={panelOpen} aria-expanded={panelOpen}
+                      onClick={() => setPanelOpen((o) => !o)}><IconPanel /></IconButton>
+                  </div>
+                )}
+              </div>
             )}
           </div>
-          <Viewer photo={photo} recipe={recipe} compare={compare} zoom={zoom} setZoom={setZoom}
-            cropDraft={cropDraft} setCropDraft={setCropDraft}
-            showMask={showMask && !!photo?.mask?.has_mask} selecting={tool !== "off"} maskVersion={maskVersion}
-            maskShape={photo?.mask?.shape ?? null} onSelectClick={selectClick} />
           {summary && ready && (
             <div className="summary" aria-live="polite">
-              {editLevel && editLevel.level !== "none" && (
-                <span className={`level level-${editLevel.level}`} title={editLevel.notes.join(" ")}>
-                  {editLevel.level === "light" ? "Light edit" : editLevel.level === "moderate" ? "Moderate edit" : "Strong edit"}
-                </span>
-              )}
-              <span>{summary}</span>
-              {editLevel?.level === "strong" && <div className="small warn">{editLevel.notes.join(" ")}</div>}
+              {levelText && <span className={`level level-${editLevel!.level}`} title={editLevel!.notes.join(" ")}>{levelText}</span>}
+              <span className="summary-text" title={summary}>{summary}</span>
+              {editLevel?.level === "strong" && <span className="summary-warn">{editLevel.notes.join(" ")}</span>}
             </div>
           )}
           <Filmstrip photos={photos} currentId={currentId} selected={selected} onSelect={onSelect} onRemove={removePhoto} />
         </section>
 
         <aside className="sidebar" aria-hidden={narrow && !panelOpen ? true : undefined}>
-          {narrow && <button className="ghost close-panel" onClick={() => setPanelOpen(false)} aria-label="Close panel">×</button>}
+          {narrow && <button className="icon-btn close-panel" onClick={() => setPanelOpen(false)} aria-label="Close panel"><IconX /></button>}
           {photo ? (
             <>
               <InfoPanel photo={photo} onLocate={locate} dngConverter={dngConverter}
@@ -578,15 +588,15 @@ export function App() {
                 }).catch(fail)}
                 onChange={onChange} />
               <HistoryPanel history={historyView} onJump={jumpTo} />
-              <div className="row end version-line">
-                <button className="ghost small-btn" onClick={() => api.openLogs().catch(fail)}
-                  title="Open the folder with the log file (useful when reporting a problem)">Open log folder</button>
-                {version && <span className="small muted">Bird Photo Editor {version}</span>}
-              </div>
             </>
           ) : (
-            <p className="muted pad">No photo selected.</p>
+            <div className="panel-empty"><IconImage size={28} /><p>Select a photo to see its details and adjustments.</p></div>
           )}
+          <footer className="panel-footer">
+            <button className="btn ghost small" onClick={() => api.openLogs().catch(fail)}
+              title="Open the folder with the log file (useful when reporting a problem)"><IconFolder size={14} />Log folder</button>
+            {version && <span className="muted mono">v{version}</span>}
+          </footer>
         </aside>
       </main>
 
@@ -597,24 +607,28 @@ export function App() {
 
       <div className="toasts" aria-live="assertive">
         {toasts.filter((t) => t.kind === "error").length > 1 && (
-          <button className="toast-clear" onClick={() => setToasts([])}>Close all messages</button>
+          <button className="btn small toast-clear" onClick={() => setToasts([])}>Close all</button>
         )}
         {toasts.map((t) => (
           <div key={t.id} className={`toast ${t.kind}`} role={t.kind === "error" ? "alert" : "status"}>
+            <span className="toast-icon" aria-hidden="true">{t.kind === "error" ? <IconAlert size={16} /> : <IconCheck size={16} />}</span>
             <span className="toast-text">{t.text}</span>
             {t.kind === "error" && (
               <span className="toast-actions">
-                <button onClick={() => navigator.clipboard?.writeText(t.text).then(
+                <button className="btn small ghost" onClick={() => navigator.clipboard?.writeText(t.text).then(
                   () => toast("Copied. You can paste it with Ctrl+V."), () => {})}>Copy</button>
-                <button aria-label="Close message" onClick={() => setToasts((x) => x.filter((y) => y.id !== t.id))}>×</button>
+                <button className="icon-btn" aria-label="Close message" onClick={() => setToasts((x) => x.filter((y) => y.id !== t.id))}><IconX size={14} /></button>
               </span>
             )}
           </div>
         ))}
       </div>
-      {dragOver && <div className="drop-hint">{shell === "desktop"
-        ? "Drop photos or a folder to import (originals are linked, never changed)"
-        : "Drop photos to import (copies are made; originals are not changed)"}</div>}
+      {dragOver && (
+        <div className="drop-hint"><div className="drop-card"><IconImport size={36} />
+          <p>{shell === "desktop" ? "Drop photos or a folder to import" : "Drop photos to import"}</p>
+          <span className="muted">{shell === "desktop" ? "Originals are linked, never changed" : "Copies are made; originals are not changed"}</span>
+        </div></div>
+      )}
     </div>
   );
 }
